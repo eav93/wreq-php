@@ -55,95 +55,38 @@ cargo build --release
 
 ### Docker
 
-Ready-to-use images with the extension already compiled in and enabled are
-published to the GitHub Container Registry. They mirror the official `php`
-image line-up — same variants, same tag format — so they are drop-in base
-images:
+Install the binary with the Composer installer **inside your runtime stage**.
+It downloads the `.so` from the same GitHub release as the Composer package, so
+the native binary and the PHP wrapper can never drift apart.
 
 ```dockerfile
-FROM ghcr.io/eav93/wreq-php:8.3-cli
-# the wreq_php extension is already loaded
+FROM php:8.3-cli
+
+WORKDIR /app
 COPY . /app
+# ... install your Composer dependencies (vendor/) as you normally would ...
+
+# Fetch the matching wreq_php binary and enable it. The installer picks the
+# build for this image's PHP version, OS, libc and architecture.
+RUN php -r 'require "vendor/autoload.php"; Wreq\Installer::run();' \
+    && cp vendor/eav93/wreq-php/runtime/wreq_php-*.so "$(php-config --extension-dir)/wreq_php.so" \
+    && docker-php-ext-enable wreq_php
 ```
 
-Every image is multi-arch (amd64 + arm64). Tags — every PHP version
-`8.1`…`8.5` with each variant:
+Run the installer in the **final image**, not in a separate `composer` build
+stage — it must see the PHP version, libc and architecture the extension will
+actually run under (a `composer` image has a different PHP). It reads the
+installed package version through Composer and downloads
+`wreq_php-php<X>-nts-<os>-<arch>.so` from that exact release, verifying the
+checksum. Bump the version in one place — `composer.lock` — and the next build
+fetches the matching binary. No `curl` needed: the installer uses PHP's HTTP
+wrapper (`allow_url_fopen`, on by default in the official `php` images).
 
-| Variant | Base | libc |
-|---------|------|------|
-| `<php>-cli`, `<php>-fpm`, `<php>-apache` | Debian | glibc |
-| `<php>-cli-alpine`, `<php>-fpm-alpine` | Alpine | musl |
+As a safety net the library also compares, on first use, the binary version
+(`Wreq\Client::extensionVersion()`) against the package version and throws
+`Wreq\Exceptions\VersionMismatchException` on a major.minor mismatch.
 
-(ZTS PHP builds are not covered — the prebuilt extension is NTS-only.)
-
-The published images carry the prebuilt extension from the matching release
-(no recompilation). To extract just the musl binary yourself:
-
-```bash
-docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
-    --target artifact --output type=local,dest=dist .
-```
-
-### Adding the extension to your own image
-
-If you would rather start from an official `php` image, copy the prebuilt
-extension out of the matching `wreq-php` image — no compilation. Use it as a
-build stage and `COPY` the `.so` across; the stage resolves to the same
-architecture as your build, so amd64/arm64 is handled automatically:
-
-```dockerfile
-FROM ghcr.io/eav93/wreq-php:8.3-cli AS wreq
-
-FROM php:8.3-cli
-COPY --from=wreq /usr/local/lib/php/extensions/*/wreq_php.so /tmp/wreq_php.so
-RUN cp /tmp/wreq_php.so "$(php-config --extension-dir)/wreq_php.so" \
-    && rm /tmp/wreq_php.so \
-    && docker-php-ext-enable wreq_php \
-    && php -m | grep -q wreq_php
-```
-
-Match the `wreq` stage tag to your base image: the **PHP version** and the
-**libc family** must agree — `wreq-php:8.3-cli` for any Debian `php:8.3-*`
-(`cli`/`fpm`/`apache`), `wreq-php:8.3-cli-alpine` for `php:8.3-*-alpine`. The
-SAPI does not matter — the extension is the same for `cli`, `fpm` and
-`apache`.
-
-Alternatively, download the binary straight from the release — plain HTTPS,
-no registry login (handy on CI runners with awkward Docker auth). The snippet
-detects the PHP version, arch and libc, and tracks the newest release:
-
-```dockerfile
-FROM php:8.3-cli
-
-RUN set -eux; \
-    if [ -f /etc/alpine-release ]; then \
-        apk add --no-cache curl libstdc++ libgcc; libc=musl; \
-    else \
-        apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
-        rm -rf /var/lib/apt/lists/*; libc=gnu; \
-    fi; \
-    php_ver="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"; \
-    curl -fsSL -o "$(php-config --extension-dir)/wreq_php.so" \
-        "https://github.com/eav93/wreq-php/releases/latest/download/wreq_php-php${php_ver}-nts-linux-${libc}-$(uname -m).so"; \
-    docker-php-ext-enable wreq_php; \
-    php -m | grep -q wreq_php
-```
-
-`releases/latest/download/` always pulls the newest build — no version to
-bump. Replace `latest` with `download/v0.1.8` to pin a specific release. The
-extension links `libstdc++`/`libgcc`; the official Debian `php` images already
-ship them, Alpine needs them installed (as above). ZTS PHP builds are not
-covered — the prebuilt binary is NTS.
-
-#### Keeping the binary and the PHP wrapper in sync
-
-The native `.so` and the `Wreq\*` Composer package are released together. When
-you bake the `.so` into an image yourself, pin both to the same release line
-(`composer require eav93/wreq-php:^0.1`). On first use the library compares the
-two — `Wreq\Client::extensionVersion()` against the installed package version —
-and throws `Wreq\Exceptions\VersionMismatchException` if their major.minor
-differ, so a stale binary fails fast with a clear message instead of a cryptic
-missing-method error.
+ZTS PHP builds are not covered — the prebuilt binary is NTS.
 
 ## Usage
 
