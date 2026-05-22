@@ -7,12 +7,18 @@ name: Docker images
 #   FROM ghcr.io/eav93/wreq-php:8.3-cli
 #   FROM ghcr.io/eav93/wreq-php:8.3-fpm-alpine
 #
-# The extension is NOT recompiled here — each image is assembled from the
-# prebuilt binary already produced by the release workflow, so a build is just
-# a download + COPY. That makes one multi-arch buildx run per variant enough
-# (no QEMU compilation), and requires the release job to finish first.
+# Triggers:
+#   * workflow_call / workflow_dispatch — a release (always rebuilds).
+#   * schedule (daily) — rebuilds only if an official `php` base image
+#     changed since the last run, so the images pick up upstream PHP and
+#     OS security patches without needing a code release.
+#
+# The extension is not recompiled here — each image is assembled from the
+# prebuilt binary produced by the release workflow.
 
 on:
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
     inputs:
       tag:
@@ -27,8 +33,69 @@ on:
         type: string
 
 jobs:
+  # Decides whether to build: always for a release, and for the daily cron
+  # only when an official `php` base image digest changed.
+  check:
+    name: Check PHP base images
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - name: Restore previous base digests
+        uses: actions/cache/restore@v4
+        with:
+          path: digests.txt
+          key: php-base-digests-${{ github.run_id }}
+          restore-keys: php-base-digests-
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous=""
+          [ -f digests.txt ] && previous=$(cat digests.txt)
+
+          # Current manifest digest of every official php base image we use.
+          current=""
+          for php in 8.1 8.2 8.3 8.4 8.5; do
+            for variant in cli fpm apache cli-alpine fpm-alpine; do
+              d=$(curl -fsSL "https://hub.docker.com/v2/repositories/library/php/tags/${php}-${variant}" | jq -r '.digest')
+              current="${current}${php}-${variant} ${d}"$'\n'
+            done
+          done
+          printf '%s' "$current" > digests.txt
+
+          # Tag to bake: the caller's input, or the latest release for cron.
+          tag='${{ inputs.tag }}'
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          if [ -n '${{ inputs.tag }}' ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"          # release / manual
+          elif [ -z "$previous" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"          # first scheduled run
+          elif [ "$previous" != "$current" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"          # a base image changed
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "No php base image changed — skipping rebuild."
+          fi
+
+      - name: Save base digests
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: digests.txt
+          key: php-base-digests-${{ github.run_id }}
+
   publish:
     name: ghcr · ${{ matrix.php }}-${{ matrix.variant.suffix }}
+    needs: check
+    if: ${{ needs.check.outputs.build == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,8 +105,7 @@ jobs:
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
         # NTS variants only — the release builds NTS binaries, and an NTS
-        # extension cannot load in a ZTS PHP. ZTS images would need a separate
-        # ZTS build pipeline.
+        # extension cannot load in a ZTS PHP.
         variant:
           - { suffix: cli,        libc: gnu }
           - { suffix: fpm,        libc: gnu }
@@ -50,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.check.outputs.tag }}
 
       - name: Download prebuilt extension binaries
         env:
@@ -58,7 +124,7 @@ jobs:
         run: |
           mkdir -p dist
           for arch in x86_64 aarch64; do
-            gh release download "${{ inputs.tag }}" \
+            gh release download "${{ needs.check.outputs.tag }}" \
               --repo "${{ github.repository }}" \
               --pattern "wreq_php-php${{ matrix.php }}-nts-linux-${{ matrix.variant.libc }}-${arch}.so" \
               --output "dist/wreq_php-${arch}.so"
