@@ -70,6 +70,6 @@ jobs:
 
       - name: Build and test in Alpine
         run: |
-          docker build -f docker/Dockerfile \
+          docker build -f docker/Dockerfile.alpine \
             --build-arg PHP_VERSION=${{ matrix.php }} \
             --target test .

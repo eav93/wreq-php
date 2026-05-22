@@ -1,0 +1,10 @@
+# A PHP extension is a `cdylib` (dynamic library). The musl targets default to
+# static linking (`crt-static`), under which Rust cannot produce a `cdylib` at
+# all. Disabling `crt-static` for the musl targets makes the dynamic extension
+# build. This scoping leaves glibc, macOS and Windows builds untouched.
+
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]

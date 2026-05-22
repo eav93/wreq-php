@@ -1,10 +1,12 @@
 name: Docker images
 
-# Builds ready-to-use PHP images with the wreq_php extension already compiled
-# in and enabled, and publishes them to the GitHub Container Registry. Use one
-# as the base image of a PHP project — no build step on your side.
+# Publishes ready-to-use PHP images with the wreq_php extension already
+# compiled in and enabled. They mirror the official `php` image line-up — same
+# version/variant matrix, same tag format — so they are drop-in base images.
 #
-#   FROM ghcr.io/eav93/wreq-php:8.3-cli-alpine
+#   FROM ghcr.io/eav93/wreq-php:8.3-cli
+#   FROM ghcr.io/eav93/wreq-php:8.3-fpm-alpine
+#   ...
 
 on:
   push:
@@ -13,7 +15,7 @@ on:
 
 jobs:
   publish:
-    name: ghcr · php ${{ matrix.php }}
+    name: ghcr · ${{ matrix.php }}-${{ matrix.variant.suffix }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,6 +24,14 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        variant:
+          - { suffix: cli,        file: docker/Dockerfile.debian }
+          - { suffix: fpm,        file: docker/Dockerfile.debian }
+          - { suffix: apache,     file: docker/Dockerfile.debian }
+          - { suffix: zts,        file: docker/Dockerfile.debian }
+          - { suffix: cli-alpine, file: docker/Dockerfile.alpine }
+          - { suffix: fpm-alpine, file: docker/Dockerfile.alpine }
+          - { suffix: zts-alpine, file: docker/Dockerfile.alpine }
 
     steps:
       - uses: actions/checkout@v6
@@ -36,14 +46,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push runtime image
+      - name: Build and push ${{ matrix.php }}-${{ matrix.variant.suffix }}
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.variant.file }}
           target: runtime
-          build-args: PHP_VERSION=${{ matrix.php }}
+          build-args: |
+            PHP_VERSION=${{ matrix.php }}
+            VARIANT=${{ matrix.variant.suffix }}
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ matrix.php }}-cli-alpine
-          cache-from: type=gha,scope=php${{ matrix.php }}
-          cache-to: type=gha,mode=max,scope=php${{ matrix.php }}
+          tags: ghcr.io/${{ github.repository }}:${{ matrix.php }}-${{ matrix.variant.suffix }}
+          cache-from: type=gha,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}

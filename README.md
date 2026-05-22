@@ -56,25 +56,32 @@ cargo build --release
 ### Docker
 
 Ready-to-use images with the extension already compiled in and enabled are
-published to the GitHub Container Registry — one per PHP version, Alpine
-based. Use one as the base image of your project, no build step required:
+published to the GitHub Container Registry. They mirror the official `php`
+image line-up — same variants, same tag format — so they are drop-in base
+images:
 
 ```dockerfile
-FROM ghcr.io/eav93/wreq-php:8.3-cli-alpine
+FROM ghcr.io/eav93/wreq-php:8.3-cli
 # the wreq_php extension is already loaded
 COPY . /app
 ```
 
-Tags: `8.1-cli-alpine` … `8.5-cli-alpine`.
+Tags — every PHP version `8.1`…`8.5` with each variant:
 
-To build an image yourself (or extract just the musl binary):
+| Variant | Base | libc |
+|---------|------|------|
+| `<php>-cli`, `<php>-fpm`, `<php>-apache`, `<php>-zts` | Debian | glibc |
+| `<php>-cli-alpine`, `<php>-fpm-alpine`, `<php>-zts-alpine` | Alpine | musl |
+
+To build an image yourself (or extract just the binary):
 
 ```bash
-# ready-to-use image
-docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 -t wreq-php:8.3 .
+# ready-to-use image — Dockerfile.alpine (musl) or Dockerfile.debian (glibc)
+docker build -f docker/Dockerfile.debian \
+    --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm -t wreq-php:8.3-fpm .
 
-# just the musl .so → ./dist/libwreq_php.so
-docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 \
+# just the .so → ./dist/libwreq_php.so
+docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
     --target artifact --output type=local,dest=dist .
 ```
 

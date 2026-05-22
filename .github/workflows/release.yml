@@ -83,7 +83,7 @@ jobs:
 
       - name: Build in Alpine
         run: |
-          docker build -f docker/Dockerfile \
+          docker build -f docker/Dockerfile.alpine \
             --build-arg PHP_VERSION=${{ matrix.php }} \
             --target artifact --output type=local,dest=docker-out .
 

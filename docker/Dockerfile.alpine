@@ -1,25 +1,24 @@
 # Builds the `wreq_php` extension inside an Alpine (musl) PHP image and bakes
-# it into a ready-to-use runtime image.
+# it into a ready-to-use runtime image mirroring an official `php` image.
 #
-# `PHP_VERSION` selects the PHP series (8.1 … 8.5). Stages:
+#   PHP_VERSION   PHP series: 8.1 … 8.5
+#   VARIANT       Alpine PHP variant: cli-alpine | fpm-alpine | zts-alpine
 #
-#   runtime  (default) — php:<ver>-cli-alpine with wreq_php compiled in and
-#                         enabled; use it as a base image for your project.
-#   artifact           — `FROM scratch` holding just libwreq_php.so, for
-#                         extracting the bare musl binary.
+# The result is `php:<PHP_VERSION>-<VARIANT>` with wreq_php compiled in and
+# enabled. Stages:
+#
+#   runtime  (default) — the ready-to-use image; use it as a project base.
+#   artifact           — `FROM scratch` holding just libwreq_php.so.
 #   test               — builds Composer deps and runs the unit suite on musl.
 #
-# Ready-to-use image:
-#   docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 -t wreq-php:8.3 .
-#
-# Extract just the binary (to ./dist/libwreq_php.so):
-#   docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 \
-#       --target artifact --output type=local,dest=dist .
+#   docker build -f docker/Dockerfile.alpine \
+#       --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm-alpine -t wreq-php:8.3-fpm-alpine .
 
 ARG PHP_VERSION=8.3
+ARG VARIANT=cli-alpine
 
 # ---- build stage -----------------------------------------------------------
-FROM php:${PHP_VERSION}-cli-alpine AS build
+FROM php:${PHP_VERSION}-${VARIANT} AS build
 
 # Toolchain: build-base/cmake/perl/go build BoringSSL (via wreq's boring-sys2);
 # clang + llvm provide libclang for bindgen. The PHP image already ships
@@ -37,12 +36,12 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-to
 
 WORKDIR /src
 COPY . .
+# .cargo/config.toml disables crt-static for musl so a cdylib can be produced.
 RUN cargo build --release \
     && mkdir -p /out \
     && cp target/release/libwreq_php.so /out/libwreq_php.so
 
 # ---- test stage ------------------------------------------------------------
-# Builds Composer dependencies and runs the unit suite against the musl build.
 FROM build AS test
 RUN curl -fsSL https://getcomposer.org/installer | php -- \
         --install-dir=/usr/local/bin --filename=composer \
@@ -51,15 +50,11 @@ RUN curl -fsSL https://getcomposer.org/installer | php -- \
         --no-coverage --exclude-group integration
 
 # ---- artifact stage --------------------------------------------------------
-# Contents are exactly the built extension, so `--output type=local` yields
-# just the .so file.
 FROM scratch AS artifact
 COPY --from=build /out/libwreq_php.so /
 
 # ---- runtime stage (default) ----------------------------------------------
-# A clean PHP image with the extension installed and enabled — no build
-# toolchain. Use it directly as the base image for a PHP project.
-FROM php:${PHP_VERSION}-cli-alpine AS runtime
+FROM php:${PHP_VERSION}-${VARIANT} AS runtime
 COPY --from=build /out/libwreq_php.so /tmp/wreq_php.so
 RUN cp /tmp/wreq_php.so "$(php-config --extension-dir)/wreq_php.so" \
     && rm /tmp/wreq_php.so \

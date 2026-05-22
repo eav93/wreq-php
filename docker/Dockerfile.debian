@@ -1,0 +1,63 @@
+# Builds the `wreq_php` extension inside a Debian (glibc) PHP image and bakes
+# it into a ready-to-use runtime image mirroring an official `php` image.
+#
+#   PHP_VERSION   PHP series: 8.1 … 8.5
+#   VARIANT       Debian PHP variant: cli | fpm | apache | zts
+#
+# The result is `php:<PHP_VERSION>-<VARIANT>` with wreq_php compiled in and
+# enabled. Stages:
+#
+#   runtime  (default) — the ready-to-use image; use it as a project base.
+#   artifact           — `FROM scratch` holding just libwreq_php.so.
+#   test               — builds Composer deps and runs the unit suite.
+#
+#   docker build -f docker/Dockerfile.debian \
+#       --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm -t wreq-php:8.3-fpm .
+
+ARG PHP_VERSION=8.3
+ARG VARIANT=cli
+
+# ---- build stage -----------------------------------------------------------
+FROM php:${PHP_VERSION}-${VARIANT} AS build
+
+# Toolchain: build-essential/cmake/perl/golang build BoringSSL (via wreq's
+# boring-sys2); clang + libclang provide bindgen's parser. The PHP image
+# already ships `php-config` and the Zend headers.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential cmake perl golang-go git curl ca-certificates unzip \
+        clang libclang-dev llvm-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust via rustup — distro Rust can lag behind the MSRV.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+WORKDIR /src
+COPY . .
+RUN cargo build --release \
+    && mkdir -p /out \
+    && cp target/release/libwreq_php.so /out/libwreq_php.so
+
+# ---- test stage ------------------------------------------------------------
+FROM build AS test
+RUN curl -fsSL https://getcomposer.org/installer | php -- \
+        --install-dir=/usr/local/bin --filename=composer \
+    && composer install --no-interaction --no-progress --no-scripts \
+    && php -d extension=/out/libwreq_php.so vendor/bin/phpunit \
+        --no-coverage --exclude-group integration
+
+# ---- artifact stage --------------------------------------------------------
+FROM scratch AS artifact
+COPY --from=build /out/libwreq_php.so /
+
+# ---- runtime stage (default) ----------------------------------------------
+FROM php:${PHP_VERSION}-${VARIANT} AS runtime
+COPY --from=build /out/libwreq_php.so /tmp/wreq_php.so
+RUN cp /tmp/wreq_php.so "$(php-config --extension-dir)/wreq_php.so" \
+    && rm /tmp/wreq_php.so \
+    && docker-php-ext-enable wreq_php \
+    && php -m | grep -qx wreq_php \
+    && echo "wreq_php extension enabled"
