@@ -84,6 +84,37 @@ docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
     --target artifact --output type=local,dest=dist .
 ```
 
+### Adding the extension to your own image
+
+If you would rather start from an official `php` image, drop the prebuilt
+binary in — no compilation, just a download. The snippet auto-detects the PHP
+version, architecture and libc, so it works on any `php:<ver>-cli` /
+`-fpm` / `-apache` (Debian) or `-alpine` tag:
+
+```dockerfile
+FROM php:8.3-cli
+
+ARG WREQ_PHP_VERSION=v0.1.7
+RUN set -eux; \
+    if [ -f /etc/alpine-release ]; then \
+        apk add --no-cache curl libstdc++ libgcc; libc=musl; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
+        rm -rf /var/lib/apt/lists/*; libc=gnu; \
+    fi; \
+    php_ver="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"; \
+    arch="$(uname -m)"; [ "$arch" = arm64 ] && arch=aarch64; \
+    curl -fsSL -o "$(php-config --extension-dir)/wreq_php.so" \
+        "https://github.com/eav93/wreq-php/releases/download/${WREQ_PHP_VERSION}/wreq_php-php${php_ver}-nts-linux-${libc}-${arch}.so"; \
+    docker-php-ext-enable wreq_php; \
+    php -m | grep -q wreq_php
+```
+
+The extension links `libstdc++`/`libgcc` (Alpine needs them installed
+explicitly, as above). Use `releases/latest/download/` instead of a pinned
+tag to always pull the newest build. ZTS PHP builds are not covered — the
+prebuilt binary is NTS.
+
 ## Usage
 
 ```php
