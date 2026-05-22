@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Wreq\Client;
 use Wreq\Emulation;
+use Wreq\Response;
 
 /**
  * End-to-end tests against the real native extension and network.
@@ -33,9 +34,9 @@ final class IntegrationTest extends TestCase
     {
         $client = new Client(['timeout' => 30.0]);
         $response = $client->get($this->httpbin.'/get', ['hello' => 'world']);
+        $this->skipIfHttpbinUnavailable($response);
 
         $this->assertSame(200, $response->status());
-        $this->assertTrue($response->successful());
         $this->assertSame('world', $response->json('args.hello'));
     }
 
@@ -43,6 +44,7 @@ final class IntegrationTest extends TestCase
     {
         $client = new Client(['timeout' => 30.0]);
         $response = $client->post($this->httpbin.'/post', ['name' => 'Ada']);
+        $this->skipIfHttpbinUnavailable($response);
 
         $this->assertSame(200, $response->status());
         $this->assertSame('Ada', $response->json('json.name'));
@@ -119,7 +121,20 @@ final class IntegrationTest extends TestCase
 
         $client->get($this->httpbin.'/cookies/set', ['session' => 'abc']);
         $response = $client->get($this->httpbin.'/cookies');
+        $this->skipIfHttpbinUnavailable($response);
 
         $this->assertSame('abc', $response->json('cookies.session'));
+    }
+
+    /**
+     * httpbin.org is a free shared service that intermittently returns 5xx or
+     * non-JSON error pages. When that happens, skip — these tests exercise the
+     * extension, not httpbin's uptime.
+     */
+    private function skipIfHttpbinUnavailable(Response $response): void
+    {
+        if (! $response->successful()) {
+            $this->markTestSkipped('httpbin returned HTTP '.$response->status());
+        }
     }
 }
