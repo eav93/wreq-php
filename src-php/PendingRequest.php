@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Wreq;
 
+use Wreq\Ext\Client;
+
 /**
  * Immutable per-request builder.
  *
@@ -20,21 +22,27 @@ final class PendingRequest
     /** @var array<string, mixed> Accumulated query parameters. */
     private array $query = [];
 
-    /** Body encoding for array payloads: `json` or `form`. */
+    /** Body encoding for array payloads: `json`, `form` or `multipart`. */
     private string $bodyFormat = 'json';
 
     /** Explicit raw body set via `withBody()`, bypassing array encoding. */
     private ?string $rawBody = null;
 
     /**
-     * @param  \Wreq\Ext\Client  $ext  Shared native client (and its pool).
+     * Files for a `multipart/form-data` request.
+     *
+     * @var array<int, array{name: string, contents: string, filename?: string, content_type?: string}>
+     */
+    private array $attachments = [];
+
+    /**
+     * @param  Client  $ext  Shared native client (and its pool).
      * @param  string  $baseUrl  Optional base URL prepended to relative paths.
      */
     public function __construct(
         private readonly object $ext,
         private readonly string $baseUrl = '',
-    ) {
-    }
+    ) {}
 
     /**
      * Adds request headers.
@@ -133,6 +141,53 @@ final class PendingRequest
     }
 
     /**
+     * Sends the request as `multipart/form-data`. Array payloads become text
+     * fields; files are added with {@see attach()}. The `Content-Type` header
+     * (with the boundary) is set automatically — do not set it yourself.
+     */
+    public function asMultipart(): self
+    {
+        $clone = clone $this;
+        $clone->bodyFormat = 'multipart';
+
+        return $clone;
+    }
+
+    /**
+     * Attaches a file to a `multipart/form-data` request. Implies multipart
+     * mode. Call repeatedly for multiple files.
+     *
+     * @param  string  $name  The form field name.
+     * @param  string|resource  $contents  File content, or a stream resource.
+     * @param  string|null  $filename  Optional filename for the part.
+     * @param  string|null  $contentType  Optional MIME type for the part.
+     */
+    public function attach(
+        string $name,
+        mixed $contents,
+        ?string $filename = null,
+        ?string $contentType = null,
+    ): self {
+        if (is_resource($contents)) {
+            $contents = stream_get_contents($contents);
+        }
+
+        $part = ['name' => $name, 'contents' => (string) $contents];
+        if ($filename !== null) {
+            $part['filename'] = $filename;
+        }
+        if ($contentType !== null) {
+            $part['content_type'] = $contentType;
+        }
+
+        $clone = clone $this;
+        $clone->bodyFormat = 'multipart';
+        $clone->attachments = [...$this->attachments, $part];
+
+        return $clone;
+    }
+
+    /**
      * Sends a raw, pre-encoded body.
      */
     public function withBody(string $content, string $contentType = 'application/json'): self
@@ -220,6 +275,22 @@ final class PendingRequest
      */
     private function dispatch(string $method, string $url, array|string|null $data): Response
     {
+        $finalUrl = $this->buildUrl($url);
+
+        // multipart/form-data: text fields + attached files; wreq sets the
+        // Content-Type (with boundary) itself.
+        if ($this->bodyFormat === 'multipart') {
+            $fields = is_array($data) ? $data : [];
+
+            return new Response($this->ext->requestMultipart(
+                $method,
+                $finalUrl,
+                $this->headers,
+                $fields,
+                $this->attachments,
+            ));
+        }
+
         $headers = $this->headers;
         $body = null;
 
@@ -237,7 +308,7 @@ final class PendingRequest
             }
         }
 
-        $raw = $this->ext->request($method, $this->buildUrl($url), $headers, $body);
+        $raw = $this->ext->request($method, $finalUrl, $headers, $body);
 
         return new Response($raw);
     }

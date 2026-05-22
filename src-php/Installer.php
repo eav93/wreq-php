@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Wreq;
 
+use Composer\InstalledVersions;
+
 /**
  * Composer post-install hook that fetches a prebuilt native binary.
  *
@@ -153,12 +155,12 @@ final class Installer
      */
     private static function packageVersion(): ?string
     {
-        if (! class_exists(\Composer\InstalledVersions::class)) {
+        if (! class_exists(InstalledVersions::class)) {
             return null;
         }
 
         try {
-            return \Composer\InstalledVersions::getPrettyVersion(self::PACKAGE);
+            return InstalledVersions::getPrettyVersion(self::PACKAGE);
         } catch (\Throwable) {
             return null;
         }

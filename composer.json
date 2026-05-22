@@ -9,6 +9,7 @@
         "ext-json": "*"
     },
     "require-dev": {
+        "laravel/pint": "^1.29",
         "phpunit/phpunit": "^10.5 || ^11.0"
     },
     "autoload": {

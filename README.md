@@ -113,6 +113,10 @@ $client->post('https://api.example.com/users', ['name' => 'Ada']);
 $client->asForm()->post($url, ['field' => 'value']);
 $client->withToken('secret')->withHeaders(['X-Trace' => '1'])->get($url);
 
+// multipart/form-data — attach files alongside text fields.
+$client->attach('photo', file_get_contents('p.jpg'), 'p.jpg', 'image/jpeg')
+       ->post($url, ['caption' => 'Sunset']);
+
 // Release the pool and close every idle socket now.
 $client->close();
 ```

@@ -51,23 +51,66 @@ impl Client {
         headers: Option<&ZendHashTable>,
         body: Option<String>,
     ) -> PhpResult<Response> {
+        let mut builder = self.request_builder(method, url, headers)?;
+        if let Some(body) = body {
+            builder = builder.body(body);
+        }
+        self.execute(builder)
+    }
+
+    /// Executes a `multipart/form-data` request.
+    ///
+    /// * `fields` — text fields (`name => value`).
+    /// * `files`  — a list of attachments; each is an array with `name`,
+    ///   `contents` (raw bytes) and optional `filename` / `content_type`.
+    pub fn request_multipart(
+        &self,
+        method: &str,
+        url: &str,
+        headers: Option<&ZendHashTable>,
+        fields: Option<&ZendHashTable>,
+        files: Option<&ZendHashTable>,
+    ) -> PhpResult<Response> {
+        let builder = self.request_builder(method, url, headers)?;
+        let form = build_multipart(fields, files)?;
+        self.execute(builder.multipart(form))
+    }
+
+    /// Releases the connection pool now, closing all idle keep-alive sockets.
+    /// Subsequent requests through this client raise an exception.
+    pub fn close(&mut self) {
+        self.inner = None;
+    }
+
+    /// Whether the client is still usable (not yet closed).
+    pub fn is_open(&self) -> bool {
+        self.inner.is_some()
+    }
+}
+
+impl Client {
+    /// Starts a `RequestBuilder` with the method, URL and per-request headers.
+    fn request_builder(
+        &self,
+        method: &str,
+        url: &str,
+        headers: Option<&ZendHashTable>,
+    ) -> PhpResult<wreq::RequestBuilder> {
         let client = self.inner.as_ref().ok_or_else(|| {
             PhpException::default("client is closed: its connection pool has been released".into())
         })?;
-
         let http_method = wreq::Method::from_bytes(method.as_bytes())
             .map_err(|_| PhpException::default(format!("invalid HTTP method: '{method}'")))?;
 
         let mut builder = client.request(http_method, url);
-
         if let Some(table) = headers {
-            let header_map = headers_from_table(table).map_err(PhpException::from)?;
-            builder = builder.headers(header_map);
+            builder = builder.headers(headers_from_table(table).map_err(PhpException::from)?);
         }
-        if let Some(body) = body {
-            builder = builder.body(body);
-        }
+        Ok(builder)
+    }
 
+    /// Sends the request on the shared runtime and reads the full response.
+    fn execute(&self, builder: wreq::RequestBuilder) -> PhpResult<Response> {
         runtime().block_on(async move {
             let resp = builder.send().await.map_err(map_wreq_error)?;
 
@@ -91,17 +134,62 @@ impl Client {
             Ok(Response::new(status, version, url, headers, body, remote_addr))
         })
     }
+}
 
-    /// Releases the connection pool now, closing all idle keep-alive sockets.
-    /// Subsequent requests through this client raise an exception.
-    pub fn close(&mut self) {
-        self.inner = None;
+/// Builds a `multipart/form-data` form from PHP-side text fields and files.
+fn build_multipart(
+    fields: Option<&ZendHashTable>,
+    files: Option<&ZendHashTable>,
+) -> PhpResult<wreq::multipart::Form> {
+    let mut form = wreq::multipart::Form::new();
+
+    if let Some(fields) = fields {
+        for (name, value) in fields.iter() {
+            let name = name.to_string();
+            let value = value
+                .str()
+                .ok_or_else(|| PhpException::default(format!("field '{name}' must be a string")))?;
+            form = form.text(name, value.to_string());
+        }
     }
 
-    /// Whether the client is still usable (not yet closed).
-    pub fn is_open(&self) -> bool {
-        self.inner.is_some()
+    if let Some(files) = files {
+        for (_, file) in files.iter() {
+            let file = file
+                .array()
+                .ok_or_else(|| PhpException::default("each attachment must be an array".into()))?;
+
+            let name = file
+                .get("name")
+                .and_then(|zv| zv.str())
+                .ok_or_else(|| PhpException::default("attachment is missing 'name'".into()))?
+                .to_string();
+
+            // Raw bytes — read via the zend_string so binary file content
+            // survives (a PHP string is not necessarily valid UTF-8).
+            let contents = file
+                .get("contents")
+                .and_then(|zv| zv.zend_str())
+                .ok_or_else(|| {
+                    PhpException::default(format!("attachment '{name}' is missing 'contents'"))
+                })?
+                .as_ref()
+                .to_vec();
+
+            let mut part = wreq::multipart::Part::bytes(contents);
+            if let Some(filename) = file.get("filename").and_then(|zv| zv.str()) {
+                part = part.file_name(filename.to_string());
+            }
+            if let Some(mime) = file.get("content_type").and_then(|zv| zv.str()) {
+                part = part
+                    .mime_str(mime)
+                    .map_err(|e| PhpException::default(format!("invalid content_type: {e}")))?;
+            }
+            form = form.part(name, part);
+        }
     }
+
+    Ok(form)
 }
 
 /// Builds a `wreq::Client` from a PHP options array.

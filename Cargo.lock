@@ -1274,6 +1274,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1917,6 +1927,9 @@ name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
+dependencies = [
+ "futures-core",
+]
 
 [[package]]
 name = "synstructure"
@@ -2688,6 +2701,7 @@ dependencies = [
  "ipnet",
  "libc",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "schnellru",
@@ -2696,6 +2710,7 @@ dependencies = [
  "serde_urlencoded",
  "smallvec",
  "socket2",
+ "sync_wrapper",
  "tokio",
  "tokio-boring2",
  "tower",

@@ -30,6 +30,15 @@ final class Client
     public function request(string $method, string $url, ?array $headers = null, ?string $body = null): Response {}
 
     /**
+     * Executes a `multipart/form-data` request.
+     *
+     * @param  array<string, string>|null  $headers
+     * @param  array<string, mixed>|null  $fields
+     * @param  array<int, array{name: string, contents: string, filename?: string, content_type?: string}>|null  $files
+     */
+    public function requestMultipart(string $method, string $url, ?array $headers = null, ?array $fields = null, ?array $files = null): Response {}
+
+    /**
      * Releases the connection pool, closing all idle keep-alive sockets.
      */
     public function close(): void {}

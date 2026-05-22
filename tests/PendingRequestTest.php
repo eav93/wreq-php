@@ -11,7 +11,7 @@ final class PendingRequestTest extends TestCase
 {
     public function test_get_appends_query_string(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext))->get('https://api.test/users', ['page' => 2, 'q' => 'a b']);
 
         $this->assertSame('GET', $ext->lastRequest['method']);
@@ -21,7 +21,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_base_url_is_applied_to_relative_paths(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext, 'https://api.test/v1'))->get('/users');
 
         $this->assertSame('https://api.test/v1/users', $ext->lastRequest['url']);
@@ -29,7 +29,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_base_url_is_ignored_for_absolute_urls(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext, 'https://api.test'))->get('https://other.test/x');
 
         $this->assertSame('https://other.test/x', $ext->lastRequest['url']);
@@ -37,7 +37,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_post_encodes_json_by_default(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext))->post('https://api.test/users', ['name' => 'Ada']);
 
         $this->assertSame('POST', $ext->lastRequest['method']);
@@ -47,7 +47,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_as_form_encodes_form_body(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext))->asForm()->post('https://api.test/users', ['name' => 'Ada']);
 
         $this->assertSame('name=Ada', $ext->lastRequest['body']);
@@ -59,7 +59,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_with_token_sets_authorization_header(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext))->withToken('abc123')->get('https://api.test/me');
 
         $this->assertSame('Bearer abc123', $ext->lastRequest['headers']['Authorization']);
@@ -67,7 +67,7 @@ final class PendingRequestTest extends TestCase
 
     public function test_builder_is_immutable(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         $base = new PendingRequest($ext);
         $withHeader = $base->withHeader('X-Trace', '1');
 
@@ -82,12 +82,43 @@ final class PendingRequestTest extends TestCase
 
     public function test_with_body_sends_raw_payload(): void
     {
-        $ext = new FakeExtClient();
+        $ext = new FakeExtClient;
         (new PendingRequest($ext))
             ->withBody('<xml/>', 'application/xml')
             ->post('https://api.test/feed');
 
         $this->assertSame('<xml/>', $ext->lastRequest['body']);
         $this->assertSame('application/xml', $ext->lastRequest['headers']['Content-Type']);
+    }
+
+    public function test_attach_builds_a_multipart_request(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->attach('photo', 'BINARY-DATA', 'p.jpg', 'image/jpeg')
+            ->post('https://api.test/upload', ['title' => 'hi']);
+
+        $this->assertNull($ext->lastRequest);
+        $this->assertSame('POST', $ext->lastMultipart['method']);
+        $this->assertSame(['title' => 'hi'], $ext->lastMultipart['fields']);
+
+        $file = $ext->lastMultipart['files'][0];
+        $this->assertSame('photo', $file['name']);
+        $this->assertSame('BINARY-DATA', $file['contents']);
+        $this->assertSame('p.jpg', $file['filename']);
+        $this->assertSame('image/jpeg', $file['content_type']);
+    }
+
+    public function test_multiple_attachments_are_immutable(): void
+    {
+        $ext = new FakeExtClient;
+        $one = (new PendingRequest($ext))->attach('a', 'AAA');
+        $two = $one->attach('b', 'BBB');
+
+        $two->post('https://api.test/upload');
+        $this->assertCount(2, $ext->lastMultipart['files']);
+
+        $one->post('https://api.test/upload');
+        $this->assertCount(1, $ext->lastMultipart['files']);
     }
 }

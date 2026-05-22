@@ -19,8 +19,7 @@ final class FakeRawResponse
         private readonly string $version = 'HTTP/2.0',
         private readonly string $url = 'https://example.test/',
         private readonly ?string $remoteAddr = null,
-    ) {
-    }
+    ) {}
 
     public function status(): int
     {

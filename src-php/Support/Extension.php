@@ -44,8 +44,8 @@ final class Extension
 
         throw new ExtensionMissingException(
             "The native '".self::NAME."' extension is not loaded.\n".
-            "Add it to your php.ini:  extension=".(self::binaryPath() ?? '/path/to/'.self::NAME.'.so')."\n".
-            "Or run `composer install` to fetch a prebuilt binary, ".
+            'Add it to your php.ini:  extension='.(self::binaryPath() ?? '/path/to/'.self::NAME.'.so')."\n".
+            'Or run `composer install` to fetch a prebuilt binary, '.
             'or build it with `cargo build --release`.'
         );
     }

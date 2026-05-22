@@ -126,6 +126,18 @@ final class IntegrationTest extends TestCase
         $this->assertSame('abc', $response->json('cookies.session'));
     }
 
+    public function test_multipart_upload(): void
+    {
+        $client = new Client(['timeout' => 30.0]);
+        $response = $client
+            ->attach('document', 'file-content-here', 'doc.txt', 'text/plain')
+            ->post($this->httpbin.'/post', ['caption' => 'hello']);
+        $this->skipIfHttpbinUnavailable($response);
+
+        $this->assertSame('hello', $response->json('form.caption'));
+        $this->assertSame('file-content-here', $response->json('files.document'));
+    }
+
     /**
      * httpbin.org is a free shared service that intermittently returns 5xx or
      * non-JSON error pages. When that happens, skip — these tests exercise the

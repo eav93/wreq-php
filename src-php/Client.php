@@ -40,17 +40,17 @@ final class Client
 
     /**
      * @param  array<string, mixed>  $options  Client options. Every
-     *   `wreq::ClientBuilder` setting expressible as a scalar is supported —
-     *   emulation, connection pool, timeouts, cookies, compression, redirects,
-     *   HTTP version, TCP tuning, proxy, DNS and TLS — plus `base_url`. See the
-     *   README "Client options" table for the full list.
+     *                                         `wreq::ClientBuilder` setting expressible as a scalar is supported —
+     *                                         emulation, connection pool, timeouts, cookies, compression, redirects,
+     *                                         HTTP version, TCP tuning, proxy, DNS and TLS — plus `base_url`. See the
+     *                                         README "Client options" table for the full list.
      */
     public function __construct(array $options = [])
     {
         Extension::ensure();
 
         $this->baseUrl = (string) ($options['base_url'] ?? '');
-        $this->ext = new \Wreq\Ext\Client($options);
+        $this->ext = new Ext\Client($options);
     }
 
     /**
@@ -103,6 +103,28 @@ final class Client
     public function asForm(): PendingRequest
     {
         return $this->newRequest()->asForm();
+    }
+
+    /**
+     * Starts an immutable request builder in `multipart/form-data` mode.
+     */
+    public function asMultipart(): PendingRequest
+    {
+        return $this->newRequest()->asMultipart();
+    }
+
+    /**
+     * Starts an immutable request builder with a file attached (multipart).
+     *
+     * @param  string|resource  $contents
+     */
+    public function attach(
+        string $name,
+        mixed $contents,
+        ?string $filename = null,
+        ?string $contentType = null,
+    ): PendingRequest {
+        return $this->newRequest()->attach($name, $contents, $filename, $contentType);
     }
 
     /**

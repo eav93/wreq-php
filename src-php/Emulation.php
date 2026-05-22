@@ -28,7 +28,7 @@ final class Emulation
     {
         Extension::ensure();
 
-        return \Wreq\Ext\Emulation::all();
+        return Ext\Emulation::all();
     }
 
     /**
@@ -38,7 +38,7 @@ final class Emulation
     {
         Extension::ensure();
 
-        return \Wreq\Ext\Emulation::random();
+        return Ext\Emulation::random();
     }
 
     /**
@@ -48,6 +48,6 @@ final class Emulation
     {
         Extension::ensure();
 
-        return \Wreq\Ext\Emulation::exists($name);
+        return Ext\Emulation::exists($name);
     }
 }

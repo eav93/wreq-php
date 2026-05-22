@@ -22,11 +22,9 @@ final class Response
     private mixed $jsonValue = null;
 
     /**
-     * @param  \Wreq\Ext\Response  $raw  The native response object.
+     * @param  Ext\Response  $raw  The native response object.
      */
-    public function __construct(private readonly object $raw)
-    {
-    }
+    public function __construct(private readonly object $raw) {}
 
     /**
      * Raw response body as a string.
@@ -46,9 +44,6 @@ final class Response
      * A malformed body raises `\JsonException` — distinct from a literal JSON
      * `null` (returned as `null`) and from a missing key (returns `$default`).
      *
-     * @param  string|null  $key
-     * @param  mixed  $default
-     * @return mixed
      *
      * @throws \JsonException
      */
@@ -69,7 +64,7 @@ final class Response
     /**
      * Decoded JSON body as a `stdClass` object graph.
      *
-     * @throws \JsonException  on a malformed body.
+     * @throws \JsonException on a malformed body.
      */
     public function object(): mixed
     {
@@ -217,10 +212,6 @@ final class Response
 
     /**
      * Resolves a dot-notation key against a decoded structure.
-     *
-     * @param  mixed  $target
-     * @param  mixed  $default
-     * @return mixed
      */
     private static function dataGet(mixed $target, string $key, mixed $default): mixed
     {

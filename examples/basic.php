@@ -17,10 +17,10 @@ use Wreq\Emulation;
 // One reusable client === one connection pool. Keep it around and every
 // request below reuses the same keep-alive TCP/TLS connections.
 $client = new Client([
-    'emulation'              => 'chrome_131', // browser TLS/HTTP2 fingerprint
+    'emulation' => 'chrome_131', // browser TLS/HTTP2 fingerprint
     'pool_max_idle_per_host' => 8,            // TCP connections kept per host
-    'cookies'                => true,         // shared cookie jar for this client
-    'timeout'                => 30.0,
+    'cookies' => true,         // shared cookie jar for this client
+    'timeout' => 30.0,
 ]);
 
 // GET with query parameters.
