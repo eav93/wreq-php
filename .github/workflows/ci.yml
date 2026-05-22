@@ -16,7 +16,7 @@ jobs:
         php: ['8.2', '8.4', '8.5']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -32,21 +32,22 @@ jobs:
       - name: Build extension
         run: cargo build --release
 
-      - name: Smoke test
+      - name: Locate extension
+        shell: bash
         run: |
-          EXT=$(ls target/release/libwreq_php.* | head -n1)
-          php -d extension="$EXT" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
+          EXT=$(ls target/release/libwreq_php.so target/release/libwreq_php.dylib 2>/dev/null | head -n1)
+          test -n "$EXT" || { echo "extension binary not found in target/release"; exit 1; }
+          echo "WREQ_EXT=$PWD/$EXT" >> "$GITHUB_ENV"
+
+      - name: Smoke test
+        run: php -d extension="$WREQ_EXT" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 
       - name: Install PHP dependencies
         run: composer install --no-interaction --no-progress
 
       - name: Unit tests
-        run: |
-          EXT=$(ls target/release/libwreq_php.* | head -n1)
-          php -d extension="$EXT" vendor/bin/phpunit --no-coverage --exclude-group integration
+        run: php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --exclude-group integration
 
       - name: Integration tests (network; non-blocking)
         continue-on-error: true
-        run: |
-          EXT=$(ls target/release/libwreq_php.* | head -n1)
-          php -d extension="$EXT" vendor/bin/phpunit --no-coverage --group integration
+        run: php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --group integration
