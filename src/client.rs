@@ -86,6 +86,13 @@ impl Client {
     pub fn is_open(&self) -> bool {
         self.inner.is_some()
     }
+
+    /// The release version the native extension was built from (e.g. `0.1.9`),
+    /// or `0.0.0-dev` for a local build. The PHP layer compares it with the
+    /// Composer package version to detect a binary/wrapper mismatch.
+    pub fn extension_version() -> &'static str {
+        env!("WREQ_PHP_BUILD_VERSION")
+    }
 }
 
 impl Client {

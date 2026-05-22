@@ -126,6 +126,11 @@ final class IntegrationTest extends TestCase
         $this->assertSame('abc', $response->json('cookies.session'));
     }
 
+    public function test_extension_reports_its_version(): void
+    {
+        $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+/', Client::extensionVersion());
+    }
+
     public function test_multipart_upload(): void
     {
         $client = new Client(['timeout' => 30.0]);

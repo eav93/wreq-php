@@ -47,6 +47,11 @@ final class Client
      * Whether the client is still usable (not yet closed).
      */
     public function isOpen(): bool {}
+
+    /**
+     * The release version the native extension was built from.
+     */
+    public static function extensionVersion(): string {}
 }
 
 /**

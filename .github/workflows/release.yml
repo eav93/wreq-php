@@ -63,6 +63,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build
+        env:
+          # Baked into the binary and reported by Wreq\Ext\Client::extensionVersion().
+          WREQ_PHP_VERSION: ${{ inputs.tag || github.ref_name }}
         run: cargo build --release
 
       - name: Stage binary
@@ -105,6 +108,7 @@ jobs:
         run: |
           docker build -f docker/Dockerfile.alpine \
             --build-arg PHP_VERSION=${{ matrix.php }} \
+            --build-arg WREQ_PHP_VERSION=${{ inputs.tag || github.ref_name }} \
             --target artifact --output type=local,dest=docker-out .
 
       - name: Stage binary

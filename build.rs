@@ -4,6 +4,18 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PHP_CONFIG");
     println!("cargo:rerun-if-env-changed=PHP");
 
+    // The release version (the git tag) is injected by CI via WREQ_PHP_VERSION
+    // and exposed to PHP as `Wreq\Ext\version()`, so the PHP layer can detect a
+    // mismatch between the native binary and the Composer package. Local builds
+    // fall back to a dev marker.
+    let version = std::env::var("WREQ_PHP_VERSION")
+        .ok()
+        .map(|v| v.trim().trim_start_matches('v').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "0.0.0-dev".to_string());
+    println!("cargo:rustc-env=WREQ_PHP_BUILD_VERSION={version}");
+    println!("cargo:rerun-if-env-changed=WREQ_PHP_VERSION");
+
     // On macOS a PHP extension is a `cdylib` that references PHP's symbols,
     // which are only available once the host PHP process loads it. Tell the
     // linker to leave those symbols unresolved and bind them dynamically at

@@ -223,6 +223,16 @@ final class Client
     }
 
     /**
+     * The release version of the loaded native `wreq_php` extension.
+     */
+    public static function extensionVersion(): string
+    {
+        Extension::ensure();
+
+        return Ext\Client::extensionVersion();
+    }
+
+    /**
      * Creates a fresh per-request builder bound to this client's pool.
      */
     private function newRequest(): PendingRequest

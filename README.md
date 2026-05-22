@@ -108,13 +108,13 @@ Match the `wreq` stage tag to your base image: the **PHP version** and the
 SAPI does not matter — the extension is the same for `cli`, `fpm` and
 `apache`.
 
-Alternatively, download the binary straight from the release without our
-image (the snippet detects PHP version, arch and libc):
+Alternatively, download the binary straight from the release — plain HTTPS,
+no registry login (handy on CI runners with awkward Docker auth). The snippet
+detects the PHP version, arch and libc, and tracks the newest release:
 
 ```dockerfile
 FROM php:8.3-cli
 
-ARG WREQ_PHP_VERSION=v0.1.7
 RUN set -eux; \
     if [ -f /etc/alpine-release ]; then \
         apk add --no-cache curl libstdc++ libgcc; libc=musl; \
@@ -123,16 +123,27 @@ RUN set -eux; \
         rm -rf /var/lib/apt/lists/*; libc=gnu; \
     fi; \
     php_ver="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"; \
-    arch="$(uname -m)"; [ "$arch" = arm64 ] && arch=aarch64; \
     curl -fsSL -o "$(php-config --extension-dir)/wreq_php.so" \
-        "https://github.com/eav93/wreq-php/releases/download/${WREQ_PHP_VERSION}/wreq_php-php${php_ver}-nts-linux-${libc}-${arch}.so"; \
+        "https://github.com/eav93/wreq-php/releases/latest/download/wreq_php-php${php_ver}-nts-linux-${libc}-$(uname -m).so"; \
     docker-php-ext-enable wreq_php; \
     php -m | grep -q wreq_php
 ```
 
-The extension links `libstdc++`/`libgcc`; the official Debian `php` images
-already ship them, Alpine needs them installed (as above). ZTS PHP builds are
-not covered — the prebuilt binary is NTS.
+`releases/latest/download/` always pulls the newest build — no version to
+bump. Replace `latest` with `download/v0.1.8` to pin a specific release. The
+extension links `libstdc++`/`libgcc`; the official Debian `php` images already
+ship them, Alpine needs them installed (as above). ZTS PHP builds are not
+covered — the prebuilt binary is NTS.
+
+#### Keeping the binary and the PHP wrapper in sync
+
+The native `.so` and the `Wreq\*` Composer package are released together. When
+you bake the `.so` into an image yourself, pin both to the same release line
+(`composer require eav93/wreq-php:^0.1`). On first use the library compares the
+two — `Wreq\Client::extensionVersion()` against the installed package version —
+and throws `Wreq\Exceptions\VersionMismatchException` if their major.minor
+differ, so a stale binary fails fast with a clear message instead of a cryptic
+missing-method error.
 
 ## Usage
 

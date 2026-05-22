@@ -37,6 +37,9 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-to
 
 WORKDIR /src
 COPY . .
+# Release version baked into the binary (Wreq\Ext\Client::extensionVersion()).
+ARG WREQ_PHP_VERSION
+ENV WREQ_PHP_VERSION=${WREQ_PHP_VERSION}
 # .cargo/config.toml disables crt-static for musl so a cdylib can be produced.
 RUN cargo build --release \
     && mkdir -p /out \
