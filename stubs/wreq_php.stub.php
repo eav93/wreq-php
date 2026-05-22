@@ -26,6 +26,10 @@ final class Client
      * Executes an HTTP request and returns the response with its body read.
      *
      * @param  array<string, string>|null  $headers
+     *
+     * @throws RequestException  On a transport failure (network, TLS, proxy,
+     *                           timeout). The concrete type is a subclass —
+     *                           Connection/Timeout/Tls/Redirect/Status.
      */
     public function request(string $method, string $url, ?array $headers = null, ?string $body = null): Response {}
 
@@ -35,6 +39,8 @@ final class Client
      * @param  array<string, string>|null  $headers
      * @param  array<string, mixed>|null  $fields
      * @param  array<int, array{name: string, contents: string, filename?: string, content_type?: string}>|null  $files
+     *
+     * @throws RequestException  On a transport failure (see {@see request()}).
      */
     public function requestMultipart(string $method, string $url, ?array $headers = null, ?array $fields = null, ?array $files = null): Response {}
 

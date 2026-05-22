@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wreq;
 
 use Wreq\Ext\Client;
+use Wreq\Ext\RequestException;
 
 /**
  * Immutable per-request builder.
@@ -202,6 +203,8 @@ final class PendingRequest
      * Sends a GET request.
      *
      * @param  array<string, mixed>  $query
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function get(string $url, array $query = []): Response
     {
@@ -212,6 +215,8 @@ final class PendingRequest
      * Sends a HEAD request.
      *
      * @param  array<string, mixed>  $query
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function head(string $url, array $query = []): Response
     {
@@ -222,6 +227,8 @@ final class PendingRequest
      * Sends a POST request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function post(string $url, array|string $data = []): Response
     {
@@ -232,6 +239,8 @@ final class PendingRequest
      * Sends a PUT request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function put(string $url, array|string $data = []): Response
     {
@@ -242,6 +251,8 @@ final class PendingRequest
      * Sends a PATCH request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function patch(string $url, array|string $data = []): Response
     {
@@ -252,6 +263,8 @@ final class PendingRequest
      * Sends a DELETE request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function delete(string $url, array|string $data = []): Response
     {
@@ -262,6 +275,8 @@ final class PendingRequest
      * Sends a request with an arbitrary HTTP method.
      *
      * @param  array<string, mixed>|string|null  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function send(string $method, string $url, array|string|null $data = null): Response
     {
@@ -272,6 +287,9 @@ final class PendingRequest
      * Builds and executes the request, wrapping the native response.
      *
      * @param  array<string, mixed>|string|null  $data
+     *
+     * @throws RequestException On a transport failure — network,
+     *                          DNS, TLS, proxy or timeout.
      */
     private function dispatch(string $method, string $url, array|string|null $data): Response
     {

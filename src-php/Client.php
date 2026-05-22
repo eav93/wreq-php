@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Wreq;
 
+use Wreq\Ext\RequestException;
 use Wreq\Support\Extension;
 
 /**
@@ -139,6 +140,8 @@ final class Client
      * Sends a GET request.
      *
      * @param  array<string, mixed>  $query
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function get(string $url, array $query = []): Response
     {
@@ -149,6 +152,8 @@ final class Client
      * Sends a HEAD request.
      *
      * @param  array<string, mixed>  $query
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function head(string $url, array $query = []): Response
     {
@@ -159,6 +164,8 @@ final class Client
      * Sends a POST request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function post(string $url, array|string $data = []): Response
     {
@@ -169,6 +176,8 @@ final class Client
      * Sends a PUT request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function put(string $url, array|string $data = []): Response
     {
@@ -179,6 +188,8 @@ final class Client
      * Sends a PATCH request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function patch(string $url, array|string $data = []): Response
     {
@@ -189,6 +200,8 @@ final class Client
      * Sends a DELETE request.
      *
      * @param  array<string, mixed>|string  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function delete(string $url, array|string $data = []): Response
     {
@@ -199,6 +212,8 @@ final class Client
      * Sends a request with an arbitrary HTTP method.
      *
      * @param  array<string, mixed>|string|null  $data
+     *
+     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
      */
     public function send(string $method, string $url, array|string|null $data = null): Response
     {
