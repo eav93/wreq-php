@@ -1,0 +1,38 @@
+# Assembles a ready-to-use PHP image from a *prebuilt* wreq_php binary.
+#
+# Unlike Dockerfile.alpine (which compiles), this image does no building — it
+# just drops the released extension into an official `php` image and enables
+# it. The matching binaries must be staged into `dist/` beforehand:
+#
+#   dist/wreq_php-x86_64.so    (for linux/amd64)
+#   dist/wreq_php-aarch64.so   (for linux/arm64)
+#
+# `docker.yml` downloads them from the GitHub Release. Because there is no
+# compilation, one multi-arch `buildx` build covers amd64 + arm64 with no QEMU
+# cost. Works for every official variant — Alpine and Debian alike — since only
+# `php-config` and `docker-php-ext-enable` (present in all `php` images) are
+# used.
+#
+#   docker build -f docker/Dockerfile.runtime \
+#       --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm -t wreq-php:8.3-fpm .
+
+ARG PHP_VERSION=8.3
+ARG VARIANT=cli
+
+FROM php:${PHP_VERSION}-${VARIANT}
+
+# Provided by buildx for the platform being built (amd64 / arm64).
+ARG TARGETARCH
+
+COPY dist/ /tmp/wreq/
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) arch=x86_64 ;; \
+        arm64) arch=aarch64 ;; \
+        *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    cp "/tmp/wreq/wreq_php-${arch}.so" "$(php-config --extension-dir)/wreq_php.so"; \
+    rm -rf /tmp/wreq; \
+    docker-php-ext-enable wreq_php; \
+    php -m | grep -qx wreq_php; \
+    echo "wreq_php extension enabled"

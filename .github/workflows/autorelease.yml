@@ -77,8 +77,9 @@ jobs:
       tag: ${{ needs.version.outputs.tag }}
     secrets: inherit
 
+  # Docker images reuse the binaries produced by `release`, so they wait for it.
   docker:
-    needs: version
+    needs: [version, release]
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ needs.version.outputs.tag }}

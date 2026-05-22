@@ -1,14 +1,10 @@
-# Keep the Docker build context small and reproducible.
+# Keep the Docker build context small. `dist/` is intentionally allowed — the
+# runtime image is assembled from the prebuilt binaries placed there.
 /target
 /vendor
 /runtime
-/dist
 /docker-out
 /.git
-/.github
 .phpunit.cache
 .phpunit.result.cache
 composer.lock
-*.so
-*.dylib
-*.dll

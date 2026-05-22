@@ -66,21 +66,18 @@ FROM ghcr.io/eav93/wreq-php:8.3-cli
 COPY . /app
 ```
 
-Tags — every PHP version `8.1`…`8.5` with each variant:
+Every image is multi-arch (amd64 + arm64). Tags — every PHP version
+`8.1`…`8.5` with each variant:
 
 | Variant | Base | libc |
 |---------|------|------|
 | `<php>-cli`, `<php>-fpm`, `<php>-apache`, `<php>-zts` | Debian | glibc |
 | `<php>-cli-alpine`, `<php>-fpm-alpine`, `<php>-zts-alpine` | Alpine | musl |
 
-To build an image yourself (or extract just the binary):
+The published images carry the prebuilt extension from the matching release
+(no recompilation). To extract just the musl binary yourself:
 
 ```bash
-# ready-to-use image — Dockerfile.alpine (musl) or Dockerfile.debian (glibc)
-docker build -f docker/Dockerfile.debian \
-    --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm -t wreq-php:8.3-fpm .
-
-# just the .so → ./dist/libwreq_php.so
 docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
     --target artifact --output type=local,dest=dist .
 ```

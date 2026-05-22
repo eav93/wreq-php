@@ -29,6 +29,10 @@ jobs:
   native:
     name: ${{ matrix.target_os }}-${{ matrix.arch }} · php ${{ matrix.php }}
     runs-on: ${{ matrix.os }}
+    # Windows linking against the PHP library is an unresolved ext-php-rs 0.15.4
+    # limitation; keep the job non-blocking so the release still ships the
+    # Linux and macOS binaries. A Windows binary appears if/when it links.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:

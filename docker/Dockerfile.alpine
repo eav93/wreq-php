@@ -1,18 +1,19 @@
-# Builds the `wreq_php` extension inside an Alpine (musl) PHP image and bakes
-# it into a ready-to-use runtime image mirroring an official `php` image.
+# Compiles the `wreq_php` extension inside an Alpine (musl) PHP image. This is
+# the build-only Dockerfile — the published runtime images are assembled from
+# prebuilt binaries by docker/Dockerfile.runtime.
 #
 #   PHP_VERSION   PHP series: 8.1 … 8.5
 #   VARIANT       Alpine PHP variant: cli-alpine | fpm-alpine | zts-alpine
 #
-# The result is `php:<PHP_VERSION>-<VARIANT>` with wreq_php compiled in and
-# enabled. Stages:
-#
-#   runtime  (default) — the ready-to-use image; use it as a project base.
-#   artifact           — `FROM scratch` holding just libwreq_php.so.
+# Stages:
+#   artifact (default) — `FROM scratch` holding just libwreq_php.so; extract
+#                        with `--output`. Used by the release workflow.
 #   test               — builds Composer deps and runs the unit suite on musl.
+#                        Used by CI.
 #
-#   docker build -f docker/Dockerfile.alpine \
-#       --build-arg PHP_VERSION=8.3 --build-arg VARIANT=fpm-alpine -t wreq-php:8.3-fpm-alpine .
+# Extract the musl binary to ./dist/libwreq_php.so:
+#   docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
+#       --target artifact --output type=local,dest=dist .
 
 ARG PHP_VERSION=8.3
 ARG VARIANT=cli-alpine
@@ -49,15 +50,9 @@ RUN curl -fsSL https://getcomposer.org/installer | php -- \
     && php -d extension=/out/libwreq_php.so vendor/bin/phpunit \
         --no-coverage --exclude-group integration
 
-# ---- artifact stage --------------------------------------------------------
+# ---- artifact stage (default) ----------------------------------------------
+# Holds exactly the built extension, so `--output type=local` yields just the
+# .so. The ready-to-use runtime images are assembled separately, from prebuilt
+# binaries, by docker/Dockerfile.runtime.
 FROM scratch AS artifact
 COPY --from=build /out/libwreq_php.so /
-
-# ---- runtime stage (default) ----------------------------------------------
-FROM php:${PHP_VERSION}-${VARIANT} AS runtime
-COPY --from=build /out/libwreq_php.so /tmp/wreq_php.so
-RUN cp /tmp/wreq_php.so "$(php-config --extension-dir)/wreq_php.so" \
-    && rm /tmp/wreq_php.so \
-    && docker-php-ext-enable wreq_php \
-    && php -m | grep -qx wreq_php \
-    && echo "wreq_php extension enabled"
