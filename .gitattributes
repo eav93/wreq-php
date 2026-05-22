@@ -1,0 +1,19 @@
+# Keep the Composer dist tarball lean: ship only the PHP layer, not the Rust
+# extension sources, the vendored crate, or build/CI tooling. `export-ignore`
+# excludes these from the `git archive` that Composer downloads.
+
+/.cargo              export-ignore
+/.github             export-ignore
+/docker              export-ignore
+/src                 export-ignore
+/third_party         export-ignore
+/tests               export-ignore
+/examples            export-ignore
+/build.rs            export-ignore
+/Cargo.toml          export-ignore
+/Cargo.lock          export-ignore
+/phpunit.xml         export-ignore
+/.dockerignore       export-ignore
+/.gitignore          export-ignore
+/.gitattributes      export-ignore
+/CLAUDE.md           export-ignore
