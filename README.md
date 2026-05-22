@@ -86,10 +86,30 @@ docker build -f docker/Dockerfile.alpine --build-arg PHP_VERSION=8.3 \
 
 ### Adding the extension to your own image
 
-If you would rather start from an official `php` image, drop the prebuilt
-binary in — no compilation, just a download. The snippet auto-detects the PHP
-version, architecture and libc, so it works on any `php:<ver>-cli` /
-`-fpm` / `-apache` (Debian) or `-alpine` tag:
+If you would rather start from an official `php` image, copy the prebuilt
+extension out of the matching `wreq-php` image — no compilation. Use it as a
+build stage and `COPY` the `.so` across; the stage resolves to the same
+architecture as your build, so amd64/arm64 is handled automatically:
+
+```dockerfile
+FROM ghcr.io/eav93/wreq-php:8.3-cli AS wreq
+
+FROM php:8.3-cli
+COPY --from=wreq /usr/local/lib/php/extensions/*/wreq_php.so /tmp/wreq_php.so
+RUN cp /tmp/wreq_php.so "$(php-config --extension-dir)/wreq_php.so" \
+    && rm /tmp/wreq_php.so \
+    && docker-php-ext-enable wreq_php \
+    && php -m | grep -q wreq_php
+```
+
+Match the `wreq` stage tag to your base image: the **PHP version** and the
+**libc family** must agree — `wreq-php:8.3-cli` for any Debian `php:8.3-*`
+(`cli`/`fpm`/`apache`), `wreq-php:8.3-cli-alpine` for `php:8.3-*-alpine`. The
+SAPI does not matter — the extension is the same for `cli`, `fpm` and
+`apache`.
+
+Alternatively, download the binary straight from the release without our
+image (the snippet detects PHP version, arch and libc):
 
 ```dockerfile
 FROM php:8.3-cli
@@ -110,10 +130,9 @@ RUN set -eux; \
     php -m | grep -q wreq_php
 ```
 
-The extension links `libstdc++`/`libgcc` (Alpine needs them installed
-explicitly, as above). Use `releases/latest/download/` instead of a pinned
-tag to always pull the newest build. ZTS PHP builds are not covered — the
-prebuilt binary is NTS.
+The extension links `libstdc++`/`libgcc`; the official Debian `php` images
+already ship them, Alpine needs them installed (as above). ZTS PHP builds are
+not covered — the prebuilt binary is NTS.
 
 ## Usage
 
