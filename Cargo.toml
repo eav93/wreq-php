@@ -1,0 +1,56 @@
+[package]
+name = "wreq_php"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85.0"
+description = "PHP HTTP client with deterministic connection pooling and browser TLS/HTTP2 fingerprinting, built on wreq"
+# LGPL-3.0 because the linked `wreq-util` crate is LGPL-3.0; see LICENSE and
+# THIRD_PARTY_LICENSES.md.
+license = "LGPL-3.0-or-later"
+
+[lib]
+name = "wreq_php"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Pinned exactly: ext-php-rs 0.15.5+ pulls a bindgen/clang-sys that conflicts
+# (`links = "clang"`) with the clang-sys reachable through wreq's boring-sys2.
+# Revisit once that conflict is resolved upstream.
+ext-php-rs = { version = "=0.15.4", features = ["anyhow"] }
+wreq = { version = "6.0.0-rc.28", features = [
+    "cookies",
+    "gzip",
+    "brotli",
+    "deflate",
+    "zstd",
+    "charset",
+    "json",
+    "form",
+    "query",
+    "hickory-dns",
+] }
+wreq-util = { version = "3.0.0-rc.11", features = [
+    "emulation-serde",
+    "emulation-rand",
+] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+serde_json = "1"
+thiserror = "2"
+strum = { version = "0.27.2", default-features = false }
+
+[build-dependencies]
+ext-php-rs = { version = "=0.15.4", features = ["anyhow"] }
+
+# `ext-php-rs` generates its PHP bindings with bindgen. The released bindgen
+# panics on PHP 8.5's `preserve_none` calling convention (its tail-call VM), so
+# we use a locally patched copy that tolerates unknown calling conventions.
+# See third_party/bindgen/ir/function.rs for the one-spot patch.
+[patch.crates-io]
+bindgen = { path = "third_party/bindgen" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

@@ -1,0 +1,125 @@
+//! Error types and the exception hierarchy exposed to PHP.
+//!
+//! All transport errors map onto a `Wreq\Ext\RequestException` subtree so PHP
+//! code can `catch (\Wreq\Ext\RequestException)` to handle any failure, or a
+//! specific subclass to react to one cause.
+
+use ext_php_rs::class::RegisteredClass;
+use ext_php_rs::exception::PhpException;
+use ext_php_rs::prelude::*;
+use ext_php_rs::zend::{ce, ClassEntry};
+
+// ---------- exception hierarchy ----------
+
+/// Base class for every error raised by the extension. Extends `\Exception`.
+#[php_class]
+#[php(name = "Wreq\\Ext\\RequestException")]
+#[php(extends(ce = ce::exception, stub = "\\Exception"))]
+#[derive(Default)]
+pub struct RequestException;
+
+#[php_impl]
+impl RequestException {}
+
+/// Class-entry accessor so the subclasses below can extend `RequestException`.
+fn request_exception_ce() -> &'static ClassEntry {
+    <RequestException as RegisteredClass>::get_metadata().ce()
+}
+
+/// Connection could not be established (DNS, refused, reset).
+#[php_class]
+#[php(name = "Wreq\\Ext\\ConnectionException")]
+#[php(extends(ce = request_exception_ce, stub = "\\Wreq\\Ext\\RequestException"))]
+#[derive(Default)]
+pub struct ConnectionException;
+
+#[php_impl]
+impl ConnectionException {}
+
+/// Request exceeded its timeout.
+#[php_class]
+#[php(name = "Wreq\\Ext\\TimeoutException")]
+#[php(extends(ce = request_exception_ce, stub = "\\Wreq\\Ext\\RequestException"))]
+#[derive(Default)]
+pub struct TimeoutException;
+
+#[php_impl]
+impl TimeoutException {}
+
+/// TLS handshake / certificate failure.
+#[php_class]
+#[php(name = "Wreq\\Ext\\TlsException")]
+#[php(extends(ce = request_exception_ce, stub = "\\Wreq\\Ext\\RequestException"))]
+#[derive(Default)]
+pub struct TlsException;
+
+#[php_impl]
+impl TlsException {}
+
+/// Redirect policy was violated (loop or limit exceeded).
+#[php_class]
+#[php(name = "Wreq\\Ext\\RedirectException")]
+#[php(extends(ce = request_exception_ce, stub = "\\Wreq\\Ext\\RequestException"))]
+#[derive(Default)]
+pub struct RedirectException;
+
+#[php_impl]
+impl RedirectException {}
+
+/// Raised by `Response::throw()` for a 4xx/5xx status.
+#[php_class]
+#[php(name = "Wreq\\Ext\\StatusException")]
+#[php(extends(ce = request_exception_ce, stub = "\\Wreq\\Ext\\RequestException"))]
+#[derive(Default)]
+pub struct StatusException;
+
+#[php_impl]
+impl StatusException {}
+
+/// Every exception class, in registration order (parent first).
+pub fn exception_classes(module: ModuleBuilder) -> ModuleBuilder {
+    module
+        .class::<RequestException>()
+        .class::<ConnectionException>()
+        .class::<TimeoutException>()
+        .class::<TlsException>()
+        .class::<RedirectException>()
+        .class::<StatusException>()
+}
+
+// ---------- internal error ----------
+
+/// A simple internal error carrying a human-readable message. Request building
+/// (e.g. header validation) reports failures through this; transport errors go
+/// through `map_wreq_error` directly.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct Error(String);
+
+impl Error {
+    pub fn other(msg: impl Into<String>) -> Self {
+        Error(msg.into())
+    }
+}
+
+impl From<Error> for PhpException {
+    fn from(e: Error) -> Self {
+        PhpException::from_class::<RequestException>(e.to_string())
+    }
+}
+
+/// Maps a `wreq::Error` onto the most specific PHP exception class.
+pub fn map_wreq_error(e: wreq::Error) -> PhpException {
+    let msg = e.to_string();
+    if e.is_timeout() {
+        PhpException::from_class::<TimeoutException>(msg)
+    } else if e.is_connect() {
+        PhpException::from_class::<ConnectionException>(msg)
+    } else if e.is_redirect() {
+        PhpException::from_class::<RedirectException>(msg)
+    } else {
+        PhpException::from_class::<RequestException>(msg)
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

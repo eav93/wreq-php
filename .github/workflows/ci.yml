@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    name: build (php ${{ matrix.php }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        php: ['8.2', '8.4', '8.5']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build extension
+        run: cargo build --release
+
+      - name: Smoke test
+        run: |
+          EXT=$(ls target/release/libwreq_php.* | head -n1)
+          php -d extension="$EXT" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Unit tests
+        run: |
+          EXT=$(ls target/release/libwreq_php.* | head -n1)
+          php -d extension="$EXT" vendor/bin/phpunit --no-coverage --exclude-group integration
+
+      - name: Integration tests (network; non-blocking)
+        continue-on-error: true
+        run: |
+          EXT=$(ls target/release/libwreq_php.* | head -n1)
+          php -d extension="$EXT" vendor/bin/phpunit --no-coverage --group integration
