@@ -37,14 +37,15 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        # NTS variants only — the release builds NTS binaries, and an NTS
+        # extension cannot load in a ZTS PHP. ZTS images would need a separate
+        # ZTS build pipeline.
         variant:
           - { suffix: cli,        libc: gnu }
           - { suffix: fpm,        libc: gnu }
           - { suffix: apache,     libc: gnu }
-          - { suffix: zts,        libc: gnu }
           - { suffix: cli-alpine, libc: musl }
           - { suffix: fpm-alpine, libc: musl }
-          - { suffix: zts-alpine, libc: musl }
 
     steps:
       - uses: actions/checkout@v6

@@ -71,8 +71,10 @@ Every image is multi-arch (amd64 + arm64). Tags — every PHP version
 
 | Variant | Base | libc |
 |---------|------|------|
-| `<php>-cli`, `<php>-fpm`, `<php>-apache`, `<php>-zts` | Debian | glibc |
-| `<php>-cli-alpine`, `<php>-fpm-alpine`, `<php>-zts-alpine` | Alpine | musl |
+| `<php>-cli`, `<php>-fpm`, `<php>-apache` | Debian | glibc |
+| `<php>-cli-alpine`, `<php>-fpm-alpine` | Alpine | musl |
+
+(ZTS PHP builds are not covered — the prebuilt extension is NTS-only.)
 
 The published images carry the prebuilt extension from the matching release
 (no recompilation). To extract just the musl binary yourself:
