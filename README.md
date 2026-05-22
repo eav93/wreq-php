@@ -181,13 +181,19 @@ php -d extension=./target/release/libwreq_php.so vendor/bin/phpunit
 The pure-PHP test suite runs without the extension; integration tests are
 skipped automatically when it is not loaded.
 
-### Vendored bindgen
+### Vendored ext-php-rs-bindgen
 
-`ext-php-rs` generates its PHP bindings with `bindgen`. The released `bindgen`
-panics on PHP 8.5's `preserve_none` calling convention (its tail-call VM), so
-`third_party/bindgen` is a vendored copy with a one-spot patch that tolerates
-unknown calling conventions. It is wired in via `[patch.crates-io]` and lets
-the extension build on PHP 8.1 through 8.5.
+`ext-php-rs` 0.15.13 generates its PHP bindings with `ext-php-rs-bindgen`,
+which depends on a forked `ext-php-rs-clang-sys`. That fork keeps
+`links = "clang"`, which collides with the regular `clang-sys` reached through
+`wreq`'s `boring-sys2` — Cargo forbids two packages with the same `links`, so
+the two cannot otherwise coexist.
+
+`third_party/ext-php-rs-bindgen` is a vendored copy whose only change re-points
+that dependency at the upstream `clang-sys` (the fork is unnecessary —
+`preserve_none` is handled numerically, not via a fork-only constant). It is
+wired in via `[patch.crates-io]`, leaving a single `links = "clang"` in the
+graph. See [extphprs/ext-php-rs#740](https://github.com/extphprs/ext-php-rs/issues/740).
 
 ## License
 

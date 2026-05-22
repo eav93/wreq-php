@@ -8,7 +8,7 @@ links several Rust crates; their licenses are summarised below.
 | [`wreq`](https://crates.io/crates/wreq) | Apache-2.0 | HTTP client core. |
 | [`wreq-util`](https://crates.io/crates/wreq-util) | **LGPL-3.0** | Browser emulation profiles. This is why the project as a whole is LGPL-3.0. |
 | [`ext-php-rs`](https://crates.io/crates/ext-php-rs) | MIT OR Apache-2.0 | PHP ↔ Rust bindings. |
-| [`bindgen`](https://crates.io/crates/bindgen) | BSD-3-Clause | Build-time only; a patched copy lives in `third_party/bindgen` (see its `LICENSE`). |
+| [`ext-php-rs-bindgen`](https://crates.io/crates/ext-php-rs-bindgen) | BSD-3-Clause | Build-time only; a vendored copy lives in `third_party/ext-php-rs-bindgen` (see its `LICENSE`), with its `clang-sys` dependency re-pointed at the upstream crate to avoid a `links = "clang"` conflict with wreq's `boring-sys2`. |
 | [`tokio`](https://crates.io/crates/tokio), `serde_json`, `thiserror`, `strum` | MIT (or MIT/Apache) | Permissive. |
 
 ## Why the project is LGPL-3.0
