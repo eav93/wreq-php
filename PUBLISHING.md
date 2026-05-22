@@ -1,6 +1,8 @@
 # Publishing
 
-How to cut a release of `wreq-php`: the Composer package, the prebuilt
+**Audience: maintainers / release managers.** End users do not need this file —
+they only follow the Installation section of `README.md`. This document records
+how to cut a release of `wreq-php`: the Composer package, the prebuilt
 extension binaries, and the Docker images.
 
 ## Versioning
