@@ -1,0 +1,14 @@
+# Keep the Docker build context small and reproducible.
+/target
+/vendor
+/runtime
+/dist
+/docker-out
+/.git
+/.github
+.phpunit.cache
+.phpunit.result.cache
+composer.lock
+*.so
+*.dylib
+*.dll

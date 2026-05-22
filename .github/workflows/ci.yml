@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        php: ['8.2', '8.4', '8.5']
+        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
 
     steps:
       - uses: actions/checkout@v6
@@ -35,7 +35,7 @@ jobs:
       - name: Locate extension
         shell: bash
         run: |
-          EXT=$(ls target/release/libwreq_php.so target/release/libwreq_php.dylib 2>/dev/null | head -n1)
+          EXT=$(find target/release -maxdepth 1 \( -name 'libwreq_php.so' -o -name 'libwreq_php.dylib' \) | head -n1)
           test -n "$EXT" || { echo "extension binary not found in target/release"; exit 1; }
           echo "WREQ_EXT=$PWD/$EXT" >> "$GITHUB_ENV"
 
@@ -54,3 +54,22 @@ jobs:
         continue-on-error: true
         run: |
           php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --group integration
+
+  # Builds the musl variant in an Alpine PHP image and runs the unit suite
+  # there — the `test` stage of docker/Dockerfile fails the build on failure.
+  alpine:
+    name: alpine musl (php ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.5']
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and test in Alpine
+        run: |
+          docker build -f docker/Dockerfile \
+            --build-arg PHP_VERSION=${{ matrix.php }} \
+            --target test .

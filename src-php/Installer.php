@@ -100,12 +100,14 @@ final class Installer
         $php = PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;
         $threadSafety = PHP_ZTS ? 'zts' : 'nts';
 
+        // Linux assets carry the libc family: a glibc build will not load on
+        // a musl (Alpine) system and vice versa.
         $os = match (PHP_OS_FAMILY) {
             'Windows' => 'windows',
             'Darwin' => 'macos',
-            default => 'linux',
+            default => 'linux-'.self::detectLibc(),
         };
-        $extension = $os === 'windows' ? 'dll' : 'so';
+        $extension = PHP_OS_FAMILY === 'Windows' ? 'dll' : 'so';
 
         $machine = strtolower(php_uname('m'));
         $arch = match ($machine) {
@@ -115,6 +117,18 @@ final class Installer
         };
 
         return "wreq_php-php{$php}-{$threadSafety}-{$os}-{$arch}.{$extension}";
+    }
+
+    /**
+     * Detects the C library family on Linux: `musl` (Alpine) or `gnu`.
+     */
+    private static function detectLibc(): string
+    {
+        if (! empty(glob('/lib/ld-musl-*')) || is_file('/etc/alpine-release')) {
+            return 'musl';
+        }
+
+        return 'gnu';
     }
 
     /**

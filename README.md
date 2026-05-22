@@ -53,6 +53,31 @@ cargo build --release
 # then point php.ini at target/release/libwreq_php.so
 ```
 
+### Docker
+
+Ready-to-use images with the extension already compiled in and enabled are
+published to the GitHub Container Registry — one per PHP version, Alpine
+based. Use one as the base image of your project, no build step required:
+
+```dockerfile
+FROM ghcr.io/eav93/wreq-php:8.3-cli-alpine
+# the wreq_php extension is already loaded
+COPY . /app
+```
+
+Tags: `8.1-cli-alpine` … `8.5-cli-alpine`.
+
+To build an image yourself (or extract just the musl binary):
+
+```bash
+# ready-to-use image
+docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 -t wreq-php:8.3 .
+
+# just the musl .so → ./dist/libwreq_php.so
+docker build -f docker/Dockerfile --build-arg PHP_VERSION=8.3 \
+    --target artifact --output type=local,dest=dist .
+```
+
 ## Usage
 
 ```php
