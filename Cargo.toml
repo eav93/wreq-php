@@ -14,10 +14,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-# Pinned exactly: ext-php-rs 0.15.5+ pulls a bindgen/clang-sys that conflicts
-# (`links = "clang"`) with the clang-sys reachable through wreq's boring-sys2.
-# Revisit once that conflict is resolved upstream.
-ext-php-rs = { version = "=0.15.4", features = ["anyhow"] }
+ext-php-rs = { version = "0.15", features = ["anyhow"] }
 wreq = { version = "6.0.0-rc.28", features = [
     "cookies",
     "gzip",
@@ -40,14 +37,16 @@ thiserror = "2"
 strum = { version = "0.27.2", default-features = false }
 
 [build-dependencies]
-ext-php-rs = { version = "=0.15.4", features = ["anyhow"] }
+ext-php-rs = { version = "0.15", features = ["anyhow"] }
 
-# `ext-php-rs` generates its PHP bindings with bindgen. The released bindgen
-# panics on PHP 8.5's `preserve_none` calling convention (its tail-call VM), so
-# we use a locally patched copy that tolerates unknown calling conventions.
-# See third_party/bindgen/ir/function.rs for the one-spot patch.
+# ext-php-rs's bindgen fork (`ext-php-rs-bindgen`) depends on a forked
+# `ext-php-rs-clang-sys` whose `links = "clang"` collides with the regular
+# `clang-sys` reached through wreq's boring-sys2 — so ext-php-rs 0.15.13 cannot
+# otherwise coexist with wreq. The vendored copy re-points that dependency at
+# the regular `clang-sys` (the fork only uses standard APIs; PreserveNone is
+# handled numerically), leaving a single `links = "clang"` in the graph.
 [patch.crates-io]
-bindgen = { path = "third_party/bindgen" }
+ext-php-rs-bindgen = { path = "third_party/ext-php-rs-bindgen" }
 
 [profile.release]
 opt-level = 3
