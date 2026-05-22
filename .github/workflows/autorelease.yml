@@ -16,6 +16,7 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.gitignore'
+  workflow_dispatch:
 
 permissions:
   contents: write
