@@ -1,9 +1,15 @@
 name: Auto release
 
-# Every commit to `main` cuts a new release: the minor version is bumped
-# automatically, a `v*` tag is created, and the binary + Docker workflows run
-# for it. Skip a commit with `[skip release]` in its message; documentation-
-# only commits are ignored via paths-ignore.
+# Every commit to `main` cuts a new release: a `v*` tag is created and the
+# binary + Docker workflows run for it.
+#
+# Version bump (from the latest tag):
+#   * default          — patch:  v0.1.3 -> v0.1.4
+#   * `[minor]` in msg — minor:  v0.1.3 -> v0.2.0
+#   * `[major]` in msg — major:  v0.1.3 -> v1.0.0
+#
+# Skip a commit entirely with `[skip release]`; documentation-only commits are
+# ignored via paths-ignore.
 #
 # The tag is pushed with GITHUB_TOKEN, which by design does not trigger the
 # `push: tags` workflows — so the release and docker workflows are invoked
@@ -42,15 +48,23 @@ jobs:
         id: bump
         run: |
           latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+          message=$(git log -1 --pretty=%B)
+
           if [ -z "$latest" ]; then
             next="v0.1.0"
           else
             version=${latest#v}
             major=${version%%.*}
-            minor=${version#*.}
-            minor=${minor%%.*}
-            next="v${major}.$((minor + 1)).0"
+            rest=${version#*.}
+            minor=${rest%%.*}
+            patch=${rest#*.}
+            case "$message" in
+              *"[major]"*) next="v$((major + 1)).0.0" ;;
+              *"[minor]"*) next="v${major}.$((minor + 1)).0" ;;
+              *)           next="v${major}.${minor}.$((patch + 1))" ;;
+            esac
           fi
+
           echo "tag=$next" >> "$GITHUB_OUTPUT"
           git tag "$next"
           git push origin "$next"

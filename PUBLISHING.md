@@ -19,8 +19,11 @@ version are always the same thing.
 
 Every commit pushed to `main` cuts a release — no manual tagging:
 
-1. **`autorelease.yml`** reads the latest tag, bumps the **minor** version
-   (`v0.1.0` → `v0.2.0` → …), and creates + pushes the new tag.
+1. **`autorelease.yml`** reads the latest tag and bumps the version, then
+   creates + pushes the new tag. The bump is **patch** by default
+   (`v0.1.3` → `v0.1.4`); put `[minor]` in the commit message for a minor
+   bump (`v0.1.3` → `v0.2.0`) or `[major]` for a major one
+   (`v0.1.3` → `v1.0.0`).
 2. It then runs, for that tag:
    - **`release.yml`** — builds the extension for every PHP version × OS/libc ×
      arch and attaches each binary (plus its `.sha256`) to the GitHub Release.
