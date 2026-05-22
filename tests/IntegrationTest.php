@@ -59,6 +59,18 @@ final class IntegrationTest extends TestCase
         $this->assertFalse(Emulation::exists('not_a_browser_999'));
     }
 
+    public function test_random_emulation_filtered_by_family(): void
+    {
+        $chrome = Emulation::random('chrome');
+
+        $this->assertStringStartsWith('chrome', $chrome);
+        $this->assertTrue(Emulation::exists($chrome));
+        $this->assertNotEmpty(Emulation::like('chrome'));
+
+        $this->expectException(\InvalidArgumentException::class);
+        Emulation::random('not_a_browser');
+    }
+
     public function test_connection_pool_is_reused_within_a_client(): void
     {
         $client = new Client(['timeout' => 30.0]);

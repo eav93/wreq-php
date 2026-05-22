@@ -172,7 +172,18 @@ use Wreq\Emulation;
 
 Emulation::all();              // every supported profile name
 Emulation::random();           // a random profile
+Emulation::random('chrome');   // a random Chrome version
+Emulation::like('firefox');    // all Firefox profile names
 Emulation::exists('chrome_131');
+```
+
+A random browser version with a fixed OS:
+
+```php
+new Wreq\Client(['emulation' => [
+    'profile' => Emulation::random('chrome'),
+    'os'      => 'windows',
+]]);
 ```
 
 ## Development
