@@ -167,13 +167,18 @@ final class Installer
             ],
         ]);
 
-        $headers = [];
         $body = @file_get_contents($url, false, $context);
-        if (isset($http_response_header)) {
-            $headers = $http_response_header;
-        }
         if ($body === false) {
             throw new \RuntimeException("request failed: {$url}");
+        }
+
+        // PHP 8.5 deprecated the magic `$http_response_header` variable in
+        // favour of http_get_last_response_headers(); use whichever exists.
+        if (function_exists('http_get_last_response_headers')) {
+            $headers = http_get_last_response_headers() ?? [];
+        } else {
+            /** @var array<int, string> $http_response_header */
+            $headers = $http_response_header ?? [];
         }
 
         $status = self::statusCode($headers);

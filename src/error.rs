@@ -113,6 +113,10 @@ pub fn map_wreq_error(e: wreq::Error) -> PhpException {
     let msg = e.to_string();
     if e.is_timeout() {
         PhpException::from_class::<TimeoutException>(msg)
+    } else if e.is_tls() {
+        // Checked before `is_connect`: a TLS handshake failure is also a
+        // connect failure, but `TlsException` is the more useful class.
+        PhpException::from_class::<TlsException>(msg)
     } else if e.is_connect() {
         PhpException::from_class::<ConnectionException>(msg)
     } else if e.is_redirect() {

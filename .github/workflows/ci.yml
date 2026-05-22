@@ -16,7 +16,7 @@ jobs:
         php: ['8.2', '8.4', '8.5']
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -40,14 +40,17 @@ jobs:
           echo "WREQ_EXT=$PWD/$EXT" >> "$GITHUB_ENV"
 
       - name: Smoke test
-        run: php -d extension="$WREQ_EXT" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
+        run: |
+          php -d extension="$WREQ_EXT" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 
       - name: Install PHP dependencies
         run: composer install --no-interaction --no-progress
 
       - name: Unit tests
-        run: php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --exclude-group integration
+        run: |
+          php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --exclude-group integration
 
       - name: Integration tests (network; non-blocking)
         continue-on-error: true
-        run: php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --group integration
+        run: |
+          php -d extension="$WREQ_EXT" vendor/bin/phpunit --no-coverage --group integration

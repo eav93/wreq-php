@@ -27,7 +27,7 @@ Two layers in one repository:
 | Layer | What it is | What it does |
 |-------|-----------|--------------|
 | Native extension (`wreq_php`) | Rust + `ext-php-rs` | Owns the `wreq::Client` and its pool; executes requests; raw response. |
-| Composer package (`wreq/wreq`) | Pure PHP, `Wreq\*` | Laravel-style ergonomics: `Client`, immutable `PendingRequest`, `Response`. |
+| Composer package (`eav93/wreq-php`) | Pure PHP, `Wreq\*` | Laravel-style ergonomics: `Client`, immutable `PendingRequest`, `Response`. |
 
 The native classes (`Wreq\Ext\*`) are a thin, fast core. The PHP layer wraps
 them — that is where `json()`, `object()`, `resource()`, the status helpers and
@@ -36,7 +36,7 @@ the immutable per-request builder live.
 ## Installation
 
 ```bash
-composer require wreq/wreq
+composer require eav93/wreq-php
 ```
 
 Composer downloads a prebuilt native binary matching your PHP version, OS and

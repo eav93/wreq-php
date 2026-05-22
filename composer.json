@@ -25,11 +25,6 @@
         "post-install-cmd": "Wreq\\Installer::run",
         "post-update-cmd": "Wreq\\Installer::run"
     },
-    "extra": {
-        "wreq": {
-            "release-base": "https://github.com/wreq-php/wreq-php/releases/download"
-        }
-    },
     "config": {
         "sort-packages": true
     }

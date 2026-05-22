@@ -165,10 +165,10 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
 
     // ---- connection pool ----
     if let Some(n) = opt_long(opts, "pool_max_idle_per_host") {
-        builder = builder.pool_max_idle_per_host(n.max(0) as usize);
+        builder = builder.pool_max_idle_per_host(checked_usize("pool_max_idle_per_host", n)?);
     }
     if let Some(n) = opt_long(opts, "pool_max_size") {
-        builder = builder.pool_max_size(n.max(0) as u32);
+        builder = builder.pool_max_size(checked_u32("pool_max_size", n)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout") {
         builder = builder.pool_idle_timeout(checked_duration("pool_idle_timeout", secs)?);
@@ -259,13 +259,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
             builder.tcp_happy_eyeballs_timeout(checked_duration("tcp_happy_eyeballs_timeout", secs)?);
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries") {
-        builder = builder.tcp_keepalive_retries(n.max(0) as u32);
+        builder = builder.tcp_keepalive_retries(checked_u32("tcp_keepalive_retries", n)?);
     }
     if let Some(n) = opt_long(opts, "tcp_send_buffer_size") {
-        builder = builder.tcp_send_buffer_size(n.max(0) as usize);
+        builder = builder.tcp_send_buffer_size(checked_usize("tcp_send_buffer_size", n)?);
     }
     if let Some(n) = opt_long(opts, "tcp_recv_buffer_size") {
-        builder = builder.tcp_recv_buffer_size(n.max(0) as usize);
+        builder = builder.tcp_recv_buffer_size(checked_usize("tcp_recv_buffer_size", n)?);
     }
 
     // ---- network ----
@@ -348,6 +348,27 @@ fn opt_str<'a>(opts: &'a ZendHashTable, key: &str) -> Option<&'a str> {
 /// Reads an option as a float (accepts PHP ints too).
 fn opt_f64(opts: &ZendHashTable, key: &str) -> Option<f64> {
     opts.get(key).and_then(double_value)
+}
+
+/// Converts a PHP integer option into a `u32`, rejecting negatives and values
+/// that would wrap, instead of silently truncating with `as u32`.
+fn checked_u32(option: &str, n: i64) -> PhpResult<u32> {
+    u32::try_from(n).map_err(|_| {
+        PhpException::default(format!(
+            "option '{option}' must be an integer between 0 and {}",
+            u32::MAX
+        ))
+    })
+}
+
+/// Converts a PHP integer option into a `usize`, rejecting negatives (and, on
+/// 32-bit targets, values that would not fit).
+fn checked_usize(option: &str, n: i64) -> PhpResult<usize> {
+    usize::try_from(n).map_err(|_| {
+        PhpException::default(format!(
+            "option '{option}' must be a non-negative integer that fits in usize"
+        ))
+    })
 }
 
 /// Parses a `"1.0".."1.3"` string into a `wreq` TLS version.
