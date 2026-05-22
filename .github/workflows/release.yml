@@ -24,31 +24,22 @@ permissions:
   contents: write
 
 jobs:
-  # Native builds on the GitHub runners: glibc Linux, macOS, Windows.
+  # Native builds on the GitHub runners: glibc Linux (x86_64 + arm64),
+  # macOS (Apple Silicon + Intel), Windows.
   native:
-    name: ${{ matrix.target_os }} · php ${{ matrix.php }}
+    name: ${{ matrix.target_os }}-${{ matrix.arch }} · php ${{ matrix.php }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-13, windows-latest]
         include:
-          - os: ubuntu-latest
-            target_os: linux-gnu
-            arch: x86_64
-            ext: so
-          - os: macos-14
-            target_os: macos
-            arch: aarch64
-            ext: so
-          - os: macos-13
-            target_os: macos
-            arch: x86_64
-            ext: so
-          - os: windows-latest
-            target_os: windows
-            arch: x86_64
-            ext: dll
+          - { os: ubuntu-latest,    target_os: linux-gnu, arch: x86_64,  ext: so }
+          - { os: ubuntu-24.04-arm, target_os: linux-gnu, arch: aarch64, ext: so }
+          - { os: macos-14,         target_os: macos,     arch: aarch64, ext: so }
+          - { os: macos-13,         target_os: macos,     arch: x86_64,  ext: so }
+          - { os: windows-latest,   target_os: windows,   arch: x86_64,  ext: dll }
 
     steps:
       - uses: actions/checkout@v6
@@ -60,8 +51,12 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
 
+      # ext-php-rs needs the nightly `abi_vectorcall` feature on Windows;
+      # stable is fine on Linux and macOS.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.os == 'windows-latest' && 'nightly' || 'stable' }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -85,14 +80,18 @@ jobs:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/*
 
-  # musl builds inside Alpine PHP images, for Alpine-based deployments.
+  # musl builds inside Alpine PHP images, on native runners per arch.
   musl:
-    name: linux-musl · php ${{ matrix.php }}
-    runs-on: ubuntu-latest
+    name: linux-musl-${{ matrix.arch }} · php ${{ matrix.php }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        arch: [x86_64, aarch64]
+        include:
+          - { arch: x86_64,  runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
 
     steps:
       - uses: actions/checkout@v6
@@ -109,7 +108,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          NAME="wreq_php-php${{ matrix.php }}-nts-linux-musl-x86_64.so"
+          NAME="wreq_php-php${{ matrix.php }}-nts-linux-musl-${{ matrix.arch }}.so"
           cp docker-out/libwreq_php.so "dist/$NAME"
           ( cd dist && shasum -a 256 "$NAME" > "$NAME.sha256" )
 

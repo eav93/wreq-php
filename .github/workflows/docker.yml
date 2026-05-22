@@ -2,10 +2,14 @@ name: Docker images
 
 # Publishes ready-to-use PHP images with the wreq_php extension already
 # compiled in and enabled. They mirror the official `php` image line-up — same
-# version/variant matrix, same tag format — so they are drop-in base images.
+# version/variant matrix, same tag format, multi-arch (amd64 + arm64) — so
+# they are drop-in base images.
 #
 #   FROM ghcr.io/eav93/wreq-php:8.3-cli
 #   FROM ghcr.io/eav93/wreq-php:8.3-fpm-alpine
+#
+# Each architecture is built on a native runner and the two are merged into a
+# single multi-arch manifest, so no slow QEMU emulation is involved.
 #
 # Runs on a pushed `v*` tag, on manual dispatch, or when called by the
 # auto-release workflow.
@@ -27,9 +31,10 @@ on:
         type: string
 
 jobs:
-  publish:
-    name: ghcr · ${{ matrix.php }}-${{ matrix.variant.suffix }}
-    runs-on: ubuntu-latest
+  # Build each (php × variant × arch) on its native runner and push by digest.
+  build:
+    name: build · ${{ matrix.php }}-${{ matrix.variant.suffix }} · ${{ matrix.arch.docker }}
+    runs-on: ${{ matrix.arch.runner }}
     permissions:
       contents: read
       packages: write
@@ -45,6 +50,9 @@ jobs:
           - { suffix: cli-alpine, file: docker/Dockerfile.alpine }
           - { suffix: fpm-alpine, file: docker/Dockerfile.alpine }
           - { suffix: zts-alpine, file: docker/Dockerfile.alpine }
+        arch:
+          - { docker: amd64, runner: ubuntu-latest }
+          - { docker: arm64, runner: ubuntu-24.04-arm }
 
     steps:
       - uses: actions/checkout@v6
@@ -61,16 +69,71 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.php }}-${{ matrix.variant.suffix }}
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.variant.file }}
           target: runtime
+          platforms: linux/${{ matrix.arch.docker }}
           build-args: |
             PHP_VERSION=${{ matrix.php }}
             VARIANT=${{ matrix.variant.suffix }}
-          push: true
-          tags: ghcr.io/${{ github.repository }}:${{ matrix.php }}-${{ matrix.variant.suffix }}
-          cache-from: type=gha,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}-${{ matrix.arch.docker }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.php }}-${{ matrix.variant.suffix }}-${{ matrix.arch.docker }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.arch.docker }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch.docker }}-${{ matrix.php }}-${{ matrix.variant.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # Merge the per-arch digests of each (php × variant) into one multi-arch tag.
+  merge:
+    name: manifest · ${{ matrix.php }}-${{ matrix.variant }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        variant: [cli, fpm, apache, zts, cli-alpine, fpm-alpine, zts-alpine]
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*-${{ matrix.php }}-${{ matrix.variant }}
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Create and push multi-arch manifest
+        run: |
+          image="ghcr.io/${{ github.repository }}"
+          tag="${{ matrix.php }}-${{ matrix.variant }}"
+          refs=""
+          for file in /tmp/digests/*; do
+            refs="$refs ${image}@$(cat "$file")"
+          done
+          docker buildx imagetools create -t "${image}:${tag}" $refs
+          docker buildx imagetools inspect "${image}:${tag}"
