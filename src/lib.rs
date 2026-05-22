@@ -11,6 +11,11 @@
 //! * `Wreq\Ext\Emulation` — registry of browser emulation profiles.
 //! * `Wreq\Ext\RequestException` (+ subclasses) — error hierarchy.
 
+// PHP extensions on Windows use the `vectorcall` ABI; the `ext-php-rs` macros
+// expand `extern "vectorcall"` into this crate, so the still-unstable feature
+// must be enabled here too. Windows therefore needs a nightly compiler; Linux
+// and macOS are unaffected and build on stable.
+#![cfg_attr(windows, feature(abi_vectorcall))]
 #![allow(clippy::new_without_default)]
 
 use ext_php_rs::prelude::*;
