@@ -6,12 +6,25 @@ name: Docker images
 #
 #   FROM ghcr.io/eav93/wreq-php:8.3-cli
 #   FROM ghcr.io/eav93/wreq-php:8.3-fpm-alpine
-#   ...
+#
+# Runs on a pushed `v*` tag, on manual dispatch, or when called by the
+# auto-release workflow.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build images from
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: Tag to build images from
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -35,6 +48,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4

@@ -1,0 +1,70 @@
+name: Auto release
+
+# Every commit to `main` cuts a new release: the minor version is bumped
+# automatically, a `v*` tag is created, and the binary + Docker workflows run
+# for it. Skip a commit with `[skip release]` in its message; documentation-
+# only commits are ignored via paths-ignore.
+#
+# The tag is pushed with GITHUB_TOKEN, which by design does not trigger the
+# `push: tags` workflows — so the release and docker workflows are invoked
+# directly here as reusable workflows instead.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: autorelease
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Bump minor version
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute and push next tag
+        id: bump
+        run: |
+          latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            version=${latest#v}
+            major=${version%%.*}
+            minor=${version#*.}
+            minor=${minor%%.*}
+            next="v${major}.$((minor + 1)).0"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          git tag "$next"
+          git push origin "$next"
+          echo "Tagged $next"
+
+  release:
+    needs: version
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+    secrets: inherit
+
+  docker:
+    needs: version
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+    secrets: inherit

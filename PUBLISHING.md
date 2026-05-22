@@ -8,32 +8,37 @@ extension binaries, and the Docker images.
 ## Versioning
 
 The Composer package takes its version from the **git tag** — `composer.json`
-deliberately has no `version` field. Use semantic versioning with a `v`
+deliberately has no `version` field. Tags are semantic versions with a `v`
 prefix: `v0.1.0`, `v0.2.0`, …
 
 The `Installer` downloads prebuilt binaries from the GitHub Release whose tag
 matches the installed package version, so the tag, the Release and the package
 version are always the same thing.
 
-## Cutting a release
+## Releases are automatic
 
-1. Make sure `main` is green (CI passed) and the working tree is clean.
+Every commit pushed to `main` cuts a release — no manual tagging:
 
-2. Tag and push:
-
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. Pushing a `v*` tag triggers two workflows automatically:
-
+1. **`autorelease.yml`** reads the latest tag, bumps the **minor** version
+   (`v0.1.0` → `v0.2.0` → …), and creates + pushes the new tag.
+2. It then runs, for that tag:
    - **`release.yml`** — builds the extension for every PHP version × OS/libc ×
-     arch, and attaches each binary (plus its `.sha256`) to the GitHub Release.
+     arch and attaches each binary (plus its `.sha256`) to the GitHub Release.
    - **`docker.yml`** — builds and pushes the ready-to-use images to
      `ghcr.io/eav93/wreq-php` for the whole PHP variant matrix.
+3. The tag push notifies Packagist, which publishes the new version.
 
-4. Edit the GitHub Release notes if desired. The binaries are already attached.
+The tag is created with `GITHUB_TOKEN`, which (by GitHub's design) does not
+trigger the `push: tags` workflows — so `autorelease.yml` invokes `release.yml`
+and `docker.yml` directly as reusable workflows.
+
+Skip a release for a particular commit by putting `[skip release]` in its
+message; commits that touch only documentation are ignored automatically.
+
+### Manual release
+
+`release.yml` and `docker.yml` can still be run by hand — push a `v*` tag
+yourself, or trigger them from the Actions tab with a tag input.
 
 ## Publishing to Packagist (one-time setup)
 
