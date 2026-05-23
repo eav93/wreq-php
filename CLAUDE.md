@@ -8,7 +8,9 @@ Composer PHP layer. Core value — deterministic connection-pool reuse: one
 
 - `src/` — the Rust extension (`Wreq\Ext\*`).
 - `src-php/` — the Composer PHP layer (`Wreq\*`), the Laravel-style API.
-- `docker/` — Dockerfiles; `.github/workflows/` — CI and release automation.
+- `docker/Dockerfile.alpine` — musl build/test container used by CI and release;
+  the GH runner stays on Ubuntu so JS-based actions never enter Alpine.
+- `.github/workflows/` — CI and release automation.
 
 ## Building
 

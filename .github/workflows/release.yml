@@ -1,8 +1,16 @@
 name: Release
 
-# Builds one prebuilt extension binary per (PHP version × OS/libc × arch) and
-# attaches them to the GitHub Release. Runs on a pushed `v*` tag, on manual
-# dispatch, or when called by the auto-release workflow.
+# Builds one prebuilt extension binary per (PHP version × OS/libc × arch),
+# smoke-tests each, and attaches the full set to the GitHub Release.
+#
+# Trigger: pushed `v*` tag, manual dispatch, or `workflow_call` from
+# autorelease.yml. CI validation (lint, unit, smoke) happens in ci.yml before
+# changes reach a tagged commit — this workflow is the publish path.
+#
+# Each matrix job uploads its .so/.sha256 as a workflow artifact; a single
+# `publish` job aggregates the artifacts and attaches them in one API call.
+# Direct per-job uploads to the release race against ~30 parallel callers and
+# silently drop assets even when every job reports success.
 
 on:
   push:
@@ -23,49 +31,50 @@ on:
 permissions:
   contents: write
 
+env:
+  REF: ${{ inputs.tag || github.ref_name }}
+
 jobs:
-  # Native builds on the GitHub runners: glibc Linux (x86_64 + arm64),
-  # macOS (Apple Silicon), Windows. Intel macOS is omitted — GitHub is
-  # retiring its free Intel runners and `macos-13` jobs no longer get picked
-  # up; Intel Mac users can build from source.
   native:
-    name: ${{ matrix.target_os }}-${{ matrix.arch }} · php ${{ matrix.php }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform.target_os }}-${{ matrix.platform.arch }} · php ${{ matrix.php }}
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-latest]
-        include:
-          - { os: ubuntu-latest,    target_os: linux-gnu, arch: x86_64,  ext: so }
-          - { os: ubuntu-24.04-arm, target_os: linux-gnu, arch: aarch64, ext: so }
-          - { os: macos-14,         target_os: macos,     arch: aarch64, ext: so }
-          - { os: windows-latest,   target_os: windows,   arch: x86_64,  ext: dll }
-
+        platform:
+          - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-latest,    ext: so }
+          - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
+          - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
+          - { target_os: windows,   arch: x86_64,  runner: windows-latest,   ext: dll }
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ env.REF }}
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
 
-      # ext-php-rs needs the nightly `abi_vectorcall` feature on Windows;
-      # stable is fine on Linux and macOS.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.os == 'windows-latest' && 'nightly' || 'stable' }}
+          toolchain: ${{ matrix.platform.target_os == 'windows' && 'nightly' || 'stable' }}
 
+      # Scope the cache by PHP version × platform — Swatinem/rust-cache splits
+      # only by OS, and a single shared cache otherwise lets the first job
+      # populate target/release/libwreq_php.* and the rest reuse a binary
+      # built against a different PHP module API.
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          key: php${{ matrix.php }}-${{ matrix.platform.target_os }}-${{ matrix.platform.arch }}
 
-      - name: Build
+      - name: cargo build
         env:
           # Baked into the binary and reported by Wreq\Ext\Client::extensionVersion().
-          WREQ_PHP_VERSION: ${{ inputs.tag || github.ref_name }}
+          WREQ_PHP_VERSION: ${{ env.REF }}
         run: cargo build --release
 
       - name: Stage binary
@@ -74,25 +83,26 @@ jobs:
           mkdir -p dist
           SRC=$(find target/release -maxdepth 1 \( -name 'wreq_php.dll' -o -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
           test -n "$SRC" || { echo "build artifact not found"; exit 1; }
-          NAME="wreq_php-php${{ matrix.php }}-nts-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+          NAME="wreq_php-php${{ matrix.php }}-nts-${{ matrix.platform.target_os }}-${{ matrix.platform.arch }}.${{ matrix.platform.ext }}"
           cp "$SRC" "dist/$NAME"
-          # shasum is absent on Windows runners; sha256sum covers Linux and
-          # Windows, with shasum as the macOS fallback.
           ( cd dist && { command -v sha256sum >/dev/null 2>&1 && sha256sum "$NAME" || shasum -a 256 "$NAME"; } > "$NAME.sha256" )
+          echo "BINARY=$PWD/dist/$NAME" >> "$GITHUB_ENV"
 
-      # Each job uploads to its own artifact; a final job aggregates them and
-      # attaches everything to the release in a single API call. Uploading
-      # directly here races against ~30 parallel jobs hitting the GitHub
-      # release API and silently drops assets.
+      # Block scalar (`run: |`) — the PHP ternary `? 0 : 1` would otherwise be
+      # parsed as a YAML mapping.
+      - name: Smoke test
+        shell: bash
+        run: |
+          php -d extension="$BINARY" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.target_os }}-${{ matrix.arch }}-php${{ matrix.php }}
+          name: binary-${{ matrix.platform.target_os }}-${{ matrix.platform.arch }}-php${{ matrix.php }}
           path: dist/*
           if-no-files-found: error
           retention-days: 1
 
-  # musl builds inside Alpine PHP images, on native runners per arch.
   musl:
     name: linux-musl-${{ matrix.arch }} · php ${{ matrix.php }}
     runs-on: ${{ matrix.runner }}
@@ -104,17 +114,18 @@ jobs:
         include:
           - { arch: x86_64,  runner: ubuntu-latest }
           - { arch: aarch64, runner: ubuntu-24.04-arm }
-
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ env.REF }}
 
+      # The Dockerfile's artifact stage depends on smoke, so a musl/dlopen
+      # failure aborts the build before docker-out is populated.
       - name: Build in Alpine
         run: |
           docker build -f docker/Dockerfile.alpine \
             --build-arg PHP_VERSION=${{ matrix.php }} \
-            --build-arg WREQ_PHP_VERSION=${{ inputs.tag || github.ref_name }} \
+            --build-arg WREQ_PHP_VERSION=${{ env.REF }} \
             --target artifact --output type=local,dest=docker-out .
 
       - name: Stage binary
@@ -123,9 +134,7 @@ jobs:
           mkdir -p dist
           NAME="wreq_php-php${{ matrix.php }}-nts-linux-musl-${{ matrix.arch }}.so"
           cp docker-out/libwreq_php.so "dist/$NAME"
-          # shasum is absent on Windows runners; sha256sum covers Linux and
-          # Windows, with shasum as the macOS fallback.
-          ( cd dist && { command -v sha256sum >/dev/null 2>&1 && sha256sum "$NAME" || shasum -a 256 "$NAME"; } > "$NAME.sha256" )
+          ( cd dist && sha256sum "$NAME" > "$NAME.sha256" )
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -135,9 +144,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Single aggregator that attaches every binary to the release in one call,
-  # eliminating the upload race that loses assets when ~30 jobs hit the GitHub
-  # release API in parallel.
   publish:
     name: Publish to release
     needs: [native, musl]

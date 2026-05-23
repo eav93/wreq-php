@@ -138,7 +138,14 @@ impl Client {
 
             let body = resp.bytes().await.map_err(map_wreq_error)?.to_vec();
 
-            Ok(Response::new(status, version, url, headers, body, remote_addr))
+            Ok(Response::new(
+                status,
+                version,
+                url,
+                headers,
+                body,
+                remote_addr,
+            ))
         })
     }
 }
@@ -350,8 +357,8 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tcp_user_timeout(checked_duration("tcp_user_timeout", secs)?);
     }
     if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout") {
-        builder =
-            builder.tcp_happy_eyeballs_timeout(checked_duration("tcp_happy_eyeballs_timeout", secs)?);
+        builder = builder
+            .tcp_happy_eyeballs_timeout(checked_duration("tcp_happy_eyeballs_timeout", secs)?);
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries") {
         builder = builder.tcp_keepalive_retries(checked_u32("tcp_keepalive_retries", n)?);
@@ -388,11 +395,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     if let Some(table) = opts.get("resolve").and_then(|zv| zv.array()) {
         for (host, value) in table.iter() {
             let host = host.to_string();
-            let target = value
-                .str()
-                .ok_or_else(|| PhpException::default(format!("resolve['{host}'] must be a string")))?;
+            let target = value.str().ok_or_else(|| {
+                PhpException::default(format!("resolve['{host}'] must be a string"))
+            })?;
             let addr: std::net::SocketAddr = target.parse().map_err(|_| {
-                PhpException::default(format!("resolve['{host}'] must be 'ip:port', got '{target}'"))
+                PhpException::default(format!(
+                    "resolve['{host}'] must be 'ip:port', got '{target}'"
+                ))
             })?;
             builder = builder.resolve(host, addr);
         }
