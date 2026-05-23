@@ -202,20 +202,6 @@ php -d extension=./target/release/libwreq_php.so vendor/bin/phpunit
 The pure-PHP test suite runs without the extension; integration tests are
 skipped automatically when it is not loaded.
 
-### Vendored ext-php-rs-bindgen
-
-`ext-php-rs` 0.15.13 generates its PHP bindings with `ext-php-rs-bindgen`,
-which depends on a forked `ext-php-rs-clang-sys`. That fork keeps
-`links = "clang"`, which collides with the regular `clang-sys` reached through
-`wreq`'s `boring-sys2` — Cargo forbids two packages with the same `links`, so
-the two cannot otherwise coexist.
-
-`third_party/ext-php-rs-bindgen` is a vendored copy whose only change re-points
-that dependency at the upstream `clang-sys` (the fork is unnecessary —
-`preserve_none` is handled numerically, not via a fork-only constant). It is
-wired in via `[patch.crates-io]`, leaving a single `links = "clang"` in the
-graph. See [extphprs/ext-php-rs#740](https://github.com/extphprs/ext-php-rs/issues/740).
-
 ## License
 
 **LGPL-3.0-or-later.** The browser-emulation crate `wreq-util` is LGPL-3.0, and

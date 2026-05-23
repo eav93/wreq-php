@@ -60,9 +60,10 @@ final class Installer
         $runtimeDir = \dirname(__DIR__).'/runtime';
         $dest = $runtimeDir.'/'.$target;
 
-        if (is_file($dest)) {
-            self::announce($dest);
-
+        // Re-announce only when the binary on disk is stale (missing, unloadable,
+        // or built from a different release than the Composer package). A matching
+        // binary stays silent so day-to-day `composer install` runs are quiet.
+        if (is_file($dest) && self::binaryMatchesPackage($dest)) {
             return;
         }
 
@@ -148,6 +149,76 @@ final class Installer
         }
 
         return 'https://github.com/'.self::REPO.'/releases/latest/download';
+    }
+
+    /**
+     * Whether the binary on disk should be reused as-is.
+     *
+     * Reuse when:
+     *  - the package version is dev/unknown (a dev checkout — the developer
+     *    manages the binary themselves; never overwrite their build), or
+     *  - the binary's major.minor matches the package's.
+     *
+     * Otherwise the existing binary is stale and must be redownloaded.
+     */
+    private static function binaryMatchesPackage(string $path): bool
+    {
+        $package = self::majorMinor(self::packageVersion());
+        if ($package === null) {
+            return true;
+        }
+
+        return self::majorMinor(self::queryBinaryVersion($path)) === $package;
+    }
+
+    /**
+     * Loads the binary in a clean PHP subprocess and asks it for its own version.
+     * Required because an extension can only be loaded at process start — the
+     * running Composer process cannot dlopen it itself.
+     */
+    private static function queryBinaryVersion(string $path): ?string
+    {
+        if (PHP_BINARY === '' || ! function_exists('proc_open')) {
+            return null;
+        }
+
+        $code = 'if (method_exists("Wreq\\\\Ext\\\\Client", "extensionVersion")) '
+            .'{ echo \\Wreq\\Ext\\Client::extensionVersion(); }';
+
+        $process = @proc_open(
+            [PHP_BINARY, '-n', '-d', 'extension='.$path, '-r', $code],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+
+        if (! is_resource($process)) {
+            return null;
+        }
+
+        $stdout = stream_get_contents($pipes[1]) ?: '';
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+
+        if ($status !== 0) {
+            return null;
+        }
+
+        $stdout = trim($stdout);
+
+        return $stdout !== '' ? $stdout : null;
+    }
+
+    /**
+     * Extracts `MAJOR.MINOR` from a version string; null for dev/unknown ones.
+     */
+    private static function majorMinor(?string $version): ?string
+    {
+        if ($version === null || str_contains($version, 'dev')) {
+            return null;
+        }
+
+        return preg_match('/(\d+)\.(\d+)/', $version, $m) ? $m[1].'.'.$m[2] : null;
     }
 
     /**

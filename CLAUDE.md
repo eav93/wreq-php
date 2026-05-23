@@ -8,8 +8,6 @@ Composer PHP layer. Core value — deterministic connection-pool reuse: one
 
 - `src/` — the Rust extension (`Wreq\Ext\*`).
 - `src-php/` — the Composer PHP layer (`Wreq\*`), the Laravel-style API.
-- `third_party/bindgen/` — a vendored, patched bindgen (needed for PHP 8.5);
-  do not "clean it up".
 - `docker/` — Dockerfiles; `.github/workflows/` — CI and release automation.
 
 ## Building
