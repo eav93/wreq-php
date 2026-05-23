@@ -119,21 +119,24 @@ jobs:
         with:
           ref: ${{ env.REF }}
 
-      # The Dockerfile's artifact stage depends on smoke, so a musl/dlopen
-      # failure aborts the build before docker-out is populated.
+      # The runner stays on Ubuntu; only scripts/ci/musl-build.sh runs inside
+      # Alpine via `docker run`. The script's smoke step aborts the job if
+      # the freshly built .so cannot dlopen under musl.
       - name: Build in Alpine
         run: |
-          docker build -f docker/Dockerfile.alpine \
-            --build-arg PHP_VERSION=${{ matrix.php }} \
-            --build-arg WREQ_PHP_VERSION=${{ env.REF }} \
-            --target artifact --output type=local,dest=docker-out .
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e WREQ_PHP_VERSION="${{ env.REF }}" \
+            php:${{ matrix.php }}-cli-alpine \
+            sh scripts/ci/musl-build.sh build
 
       - name: Stage binary
         shell: bash
         run: |
           mkdir -p dist
           NAME="wreq_php-php${{ matrix.php }}-nts-linux-musl-${{ matrix.arch }}.so"
-          cp docker-out/libwreq_php.so "dist/$NAME"
+          cp target/release/libwreq_php.so "dist/$NAME"
           ( cd dist && sha256sum "$NAME" > "$NAME.sha256" )
 
       - name: Upload artifact

@@ -157,11 +157,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The Dockerfile's `test` stage builds the extension under musl, runs a
-      # smoke load, then executes the PHPUnit unit suite — failure of any of
-      # those aborts the build.
+      # The runner stays on Ubuntu; only scripts/ci/musl-build.sh runs inside
+      # Alpine via `docker run`. `test` mode does build + smoke load + phpunit
+      # unit suite — any failure aborts the job.
       - name: Build and test in Alpine
         run: |
-          docker build -f docker/Dockerfile.alpine \
-            --build-arg PHP_VERSION=${{ matrix.php }} \
-            --target test .
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            php:${{ matrix.php }}-cli-alpine \
+            sh scripts/ci/musl-build.sh test
