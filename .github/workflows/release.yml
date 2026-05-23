@@ -46,7 +46,7 @@ jobs:
           - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-latest,    ext: so }
           - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
           - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
-          - { target_os: windows,   arch: x86_64,  runner: windows-latest,   ext: dll }
+          - { target_os: windows,   arch: x86_64,  runner: windows-2022,     ext: dll }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -61,6 +61,16 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.platform.target_os == 'windows' && 'nightly' || 'stable' }}
+
+      # PHP 8.1-8.3 Windows binaries are built with VS16 / MSVC 14.29. A
+      # Windows extension built with the newer default VS2022 toolset fails to
+      # load with "linked with 14.xx, but the core is linked with 14.29".
+      - name: Set up MSVC 14.29 for VS16 PHP
+        if: ${{ matrix.platform.target_os == 'windows' && contains(fromJSON('["8.1","8.2","8.3"]'), matrix.php) }}
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: 14.29
 
       # Scope the cache by PHP version × platform — Swatinem/rust-cache splits
       # only by OS, and a single shared cache otherwise lets the first job
