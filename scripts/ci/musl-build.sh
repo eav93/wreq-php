@@ -28,6 +28,14 @@ case "$MODE" in
     *) echo "usage: $0 [build|test]" >&2; exit 2 ;;
 esac
 
+# Restore workspace ownership to the host runner on every exit path — the
+# container runs as root, but subsequent host steps (cache save, staging,
+# upload-artifact) act as the unprivileged runner user. A trap covers the
+# build-failed case too, otherwise rust-cache save would silently skip
+# root-owned files.
+WS_OWNER="$(stat -c '%u:%g' .)"
+trap 'chown -R "$WS_OWNER" .' EXIT
+
 # build-base/cmake/perl/go build BoringSSL via wreq's boring-sys2; clang+llvm
 # provide libclang for bindgen. The PHP image already ships php-config and the
 # Zend headers.
@@ -57,9 +65,3 @@ if [ "$MODE" = test ]; then
     php -d extension="$EXT" \
         vendor/bin/phpunit --no-coverage --exclude-group integration
 fi
-
-# Restore workspace ownership to the host runner — the container ran as root,
-# but subsequent host steps (cache save, staging, upload-artifact) act as the
-# unprivileged runner user.
-WS_OWNER="$(stat -c '%u:%g' .)"
-chown -R "$WS_OWNER" .
