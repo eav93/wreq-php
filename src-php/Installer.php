@@ -157,18 +157,19 @@ final class Installer
      * Reuse when:
      *  - the package version is dev/unknown (a dev checkout — the developer
      *    manages the binary themselves; never overwrite their build), or
-     *  - the binary's major.minor matches the package's.
+     *  - the binary's full version (X.Y.Z) matches the package's.
      *
-     * Otherwise the existing binary is stale and must be redownloaded.
+     * Otherwise the existing binary is stale and must be redownloaded — even
+     * for a patch-only bump, so patch fixes always reach the installation.
      */
     private static function binaryMatchesPackage(string $path): bool
     {
-        $package = self::majorMinor(self::packageVersion());
+        $package = self::releaseVersion(self::packageVersion());
         if ($package === null) {
             return true;
         }
 
-        return self::majorMinor(self::queryBinaryVersion($path)) === $package;
+        return self::releaseVersion(self::queryBinaryVersion($path)) === $package;
     }
 
     /**
@@ -210,15 +211,18 @@ final class Installer
     }
 
     /**
-     * Extracts `MAJOR.MINOR` from a version string; null for dev/unknown ones.
+     * Extracts `MAJOR.MINOR.PATCH` from a version string; null for dev/unknown
+     * ones (those are never treated as a mismatch). A leading `v` and trailing
+     * build/pre-release metadata are stripped so `v0.2.1-rc1` and `0.2.1`
+     * compare equal — the release tag is the source of truth.
      */
-    private static function majorMinor(?string $version): ?string
+    private static function releaseVersion(?string $version): ?string
     {
         if ($version === null || str_contains($version, 'dev')) {
             return null;
         }
 
-        return preg_match('/(\d+)\.(\d+)/', $version, $m) ? $m[1].'.'.$m[2] : null;
+        return preg_match('/(\d+\.\d+\.\d+)/', $version, $m) ? $m[1] : null;
     }
 
     /**
