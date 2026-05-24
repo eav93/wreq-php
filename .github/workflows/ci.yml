@@ -7,9 +7,15 @@ name: CI
 #   2. php-unit (2 jobs)        — pure PHP unit tests against the fake client,
 #      no native extension required. Catches Composer-layer regressions.
 #   3. native + musl matrices   — build the extension and smoke-test that it
-#      loads. Native covers linux-gnu/macOS/Windows across all 5 PHP versions;
+#      loads. Native covers linux-gnu and macOS across all 5 PHP versions;
 #      musl covers only PHP 8.1 + 8.5 (cheap regression net for the Alpine
 #      toolchain — full musl matrix runs in release.yml).
+#
+# Windows is intentionally absent from the matrix: PHP for Windows is built
+# with a pinned MSVC toolset (14.29 for 8.1-8.3, 14.40+ for 8.4-8.5), and
+# matching the runtime MSVC of Rust + bindgen + boring-sys + the chocolatey
+# LLVM that bindgen needs has proven too fragile for CI. README directs
+# Windows users to `cargo build --release`.
 #
 # Integration tests (the `@group integration` group in tests/) intentionally
 # do not run here yet: they currently depend on the public httpbin.org and have
@@ -105,7 +111,6 @@ jobs:
           - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-latest,    ext: so }
           - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
           - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
-          - { target_os: windows,   arch: x86_64,  runner: windows-2022,     ext: dll }
     steps:
       - uses: actions/checkout@v6
 
@@ -114,49 +119,14 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
 
-      # ext-php-rs needs the nightly `abi_vectorcall` feature on Windows;
-      # stable is fine on Linux and macOS.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.platform.target_os == 'windows' && 'nightly' || 'stable' }}
-
-      # PHP 8.1-8.3 Windows binaries are built with VS16 / MSVC 14.29. A
-      # Windows extension built with the newer default VS2022 toolset fails to
-      # load with "linked with 14.xx, but the core is linked with 14.29".
-      - name: Set up MSVC 14.29 for VS16 PHP
-        if: ${{ matrix.platform.target_os == 'windows' && contains(fromJSON('["8.1","8.2","8.3"]'), matrix.php) }}
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-          toolset: 14.29
-
-      - name: Set up default MSVC for VS17 PHP
-        if: ${{ matrix.platform.target_os == 'windows' && !contains(fromJSON('["8.1","8.2","8.3"]'), matrix.php) }}
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      # BoringSSL's Windows build needs NASM. Use Ninja so cmake-rs respects
-      # the cl.exe selected above instead of rediscovering the default Visual
-      # Studio generator/toolset.
-      - name: Set up Windows native build deps
-        if: ${{ matrix.platform.target_os == 'windows' }}
-        shell: pwsh
-        run: |
-          choco install nasm -y --no-progress
-          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          if (Test-Path "C:\Program Files\LLVM\bin\libclang.dll") {
-            "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
+        uses: dtolnay/rust-toolchain@stable
 
       # Scope the cache by PHP version and platform — Swatinem/rust-cache only
       # splits by OS, so all 5 PHP jobs on a given runner would otherwise share
-      # one cache and overwrite each other's libwreq_php.{so,dylib,dll},
-      # producing binaries that mismatch the runtime PHP and fail the smoke
-      # test with "Module compiled with module API=…".
+      # one cache and overwrite each other's libwreq_php.{so,dylib}, producing
+      # binaries that mismatch the runtime PHP and fail the smoke test with
+      # "Module compiled with module API=…".
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -168,9 +138,8 @@ jobs:
       # Block scalar (`run: |`) is required — the PHP ternary contains `: 1`
       # which a plain YAML scalar would parse as a mapping separator.
       - name: Smoke test
-        shell: bash
         run: |
-          SRC=$(find target/release -maxdepth 1 \( -name 'wreq_php.dll' -o -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
+          SRC=$(find target/release -maxdepth 1 \( -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
           test -n "$SRC" || { echo "build artifact not found"; exit 1; }
           php -d extension="$PWD/$SRC" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 

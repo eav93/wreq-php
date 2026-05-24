@@ -7,9 +7,15 @@ name: Release
 # autorelease.yml. CI validation (lint, unit, smoke) happens in ci.yml before
 # changes reach a tagged commit — this workflow is the publish path.
 #
+# Windows is intentionally absent from the matrix — the PHP-on-Windows MSVC
+# toolchain pinning (14.29 for 8.1-8.3, 14.40+ for 8.4-8.5) interacts badly
+# with the libclang bindgen needs, and earlier "successful" Windows builds
+# silently shipped .dll's PHP could not load. Windows users build via
+# `cargo build --release`; see the README.
+#
 # Each matrix job uploads its .so/.sha256 as a workflow artifact; a single
 # `publish` job aggregates the artifacts and attaches them in one API call.
-# Direct per-job uploads to the release race against ~30 parallel callers and
+# Direct per-job uploads to the release race against ~25 parallel callers and
 # silently drop assets even when every job reports success.
 
 on:
@@ -46,7 +52,6 @@ jobs:
           - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-latest,    ext: so }
           - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
           - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
-          - { target_os: windows,   arch: x86_64,  runner: windows-2022,     ext: dll }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -58,40 +63,7 @@ jobs:
           php-version: ${{ matrix.php }}
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.platform.target_os == 'windows' && 'nightly' || 'stable' }}
-
-      # PHP 8.1-8.3 Windows binaries are built with VS16 / MSVC 14.29. A
-      # Windows extension built with the newer default VS2022 toolset fails to
-      # load with "linked with 14.xx, but the core is linked with 14.29".
-      - name: Set up MSVC 14.29 for VS16 PHP
-        if: ${{ matrix.platform.target_os == 'windows' && contains(fromJSON('["8.1","8.2","8.3"]'), matrix.php) }}
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-          toolset: 14.29
-
-      - name: Set up default MSVC for VS17 PHP
-        if: ${{ matrix.platform.target_os == 'windows' && !contains(fromJSON('["8.1","8.2","8.3"]'), matrix.php) }}
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      # BoringSSL's Windows build needs NASM. Use Ninja so cmake-rs respects
-      # the cl.exe selected above instead of rediscovering the default Visual
-      # Studio generator/toolset.
-      - name: Set up Windows native build deps
-        if: ${{ matrix.platform.target_os == 'windows' }}
-        shell: pwsh
-        run: |
-          choco install nasm -y --no-progress
-          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          if (Test-Path "C:\Program Files\LLVM\bin\libclang.dll") {
-            "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
+        uses: dtolnay/rust-toolchain@stable
 
       # Scope the cache by PHP version × platform — Swatinem/rust-cache splits
       # only by OS, and a single shared cache otherwise lets the first job
@@ -109,10 +81,9 @@ jobs:
         run: cargo build --release
 
       - name: Stage binary
-        shell: bash
         run: |
           mkdir -p dist
-          SRC=$(find target/release -maxdepth 1 \( -name 'wreq_php.dll' -o -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
+          SRC=$(find target/release -maxdepth 1 \( -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
           test -n "$SRC" || { echo "build artifact not found"; exit 1; }
           NAME="wreq_php-php${{ matrix.php }}-nts-${{ matrix.platform.target_os }}-${{ matrix.platform.arch }}.${{ matrix.platform.ext }}"
           cp "$SRC" "dist/$NAME"
@@ -122,7 +93,6 @@ jobs:
       # Block scalar (`run: |`) — the PHP ternary `? 0 : 1` would otherwise be
       # parsed as a YAML mapping.
       - name: Smoke test
-        shell: bash
         run: |
           php -d extension="$BINARY" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 
