@@ -16,6 +16,12 @@ fn main() {
     println!("cargo:rustc-env=WREQ_PHP_BUILD_VERSION={version}");
     println!("cargo:rerun-if-env-changed=WREQ_PHP_VERSION");
 
+    // Surface the resolved `wreq` version in `phpinfo()` — `CARGO_PKG_VERSION`
+    // only exposes our own crate, so we read it out of `Cargo.lock`.
+    let wreq_version = read_wreq_version().unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=WREQ_CRATE_VERSION={wreq_version}");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+
     // On macOS a PHP extension is a `cdylib` that references PHP's symbols,
     // which are only available once the host PHP process loads it. Tell the
     // linker to leave those symbols unresolved and bind them dynamically at
@@ -25,4 +31,24 @@ fn main() {
         println!("cargo:rustc-link-arg=-undefined");
         println!("cargo:rustc-link-arg=dynamic_lookup");
     }
+}
+
+/// Scans `Cargo.lock` for the `wreq` package and returns its resolved version.
+/// Hand-rolled rather than pulling in `toml` just for the build script.
+fn read_wreq_version() -> Option<String> {
+    let lock = std::fs::read_to_string("Cargo.lock").ok()?;
+    let mut in_wreq = false;
+    for line in lock.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[[package]]" {
+            in_wreq = false;
+        } else if trimmed == "name = \"wreq\"" {
+            in_wreq = true;
+        } else if in_wreq {
+            if let Some(rest) = trimmed.strip_prefix("version = \"") {
+                return rest.strip_suffix('"').map(str::to_string);
+            }
+        }
+    }
+    None
 }
