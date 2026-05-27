@@ -73,6 +73,32 @@ jobs:
       - name: cargo test
         run: cargo test --no-fail-fast
 
+      # IDE stubs are committed at src-php/Wreq.stubs.php and shipped via
+      # Composer. Regenerate from the registered classes and fail if the
+      # committed copy is out of date — keeps PhpStorm autocomplete in sync
+      # with the Rust source without anyone having to remember.
+      - name: Cache cargo-php binary
+        id: cache-cargo-php
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-php
+          key: cargo-php-${{ runner.os }}-v0.1.21
+
+      - name: Install cargo-php
+        if: steps.cache-cargo-php.outputs.cache-hit != 'true'
+        run: cargo install cargo-php --locked --version 0.1.21
+
+      - name: Regenerate IDE stubs
+        run: cargo php stubs --manifest Cargo.toml --out src-php/Wreq.stubs.php
+
+      - name: Check stubs are committed
+        run: |
+          if ! git diff --exit-code -- src-php/Wreq.stubs.php; then
+            echo "::error::src-php/Wreq.stubs.php is out of date."
+            echo "Run: cargo php stubs --manifest Cargo.toml --out src-php/Wreq.stubs.php"
+            exit 1
+          fi
+
   php-unit:
     name: PHP unit (php ${{ matrix.php }})
     runs-on: ubuntu-latest
