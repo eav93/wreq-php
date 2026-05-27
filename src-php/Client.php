@@ -137,6 +137,14 @@ final class Client
     }
 
     /**
+     * Starts an immutable request builder with `Accept: application/json`.
+     */
+    public function acceptJson(): PendingRequest
+    {
+        return $this->newRequest()->acceptJson();
+    }
+
+    /**
      * Sends a GET request.
      *
      * @param  array<string, mixed>  $query
