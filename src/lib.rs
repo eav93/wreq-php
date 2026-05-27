@@ -9,7 +9,7 @@
 //! * `Wreq\Ext\Client`   — reusable client with a dedicated connection pool.
 //! * `Wreq\Ext\Response` — raw response (status, headers, body bytes).
 //! * `Wreq\Ext\Emulation` — registry of browser emulation profiles.
-//! * `Wreq\Ext\RequestException` (+ subclasses) — error hierarchy.
+//! * `Wreq\Ext\WreqException` (+ subclasses) — error hierarchy.
 
 // PHP extensions on Windows use the `vectorcall` ABI; the `ext-php-rs` macros
 // expand `extern "vectorcall"` into this crate, so the still-unstable feature
@@ -36,7 +36,7 @@ use response::Response;
 
 #[php_module]
 pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
-    // Exception classes first: the base `RequestException` must be registered
+    // Exception classes first: the base `WreqException` must be registered
     // before the subclasses that extend it.
     let module = error::exception_classes(module);
 

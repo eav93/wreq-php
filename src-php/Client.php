@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Wreq;
 
-use Wreq\Ext\RequestException;
+use Wreq\Ext\WreqException;
 use Wreq\Support\Extension;
 
 /**
@@ -149,7 +149,7 @@ final class Client
      *
      * @param  array<string, mixed>  $query
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function get(string $url, array $query = []): Response
     {
@@ -161,7 +161,7 @@ final class Client
      *
      * @param  array<string, mixed>  $query
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function head(string $url, array $query = []): Response
     {
@@ -173,7 +173,7 @@ final class Client
      *
      * @param  array<string, mixed>|string  $data
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function post(string $url, array|string $data = []): Response
     {
@@ -185,7 +185,7 @@ final class Client
      *
      * @param  array<string, mixed>|string  $data
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function put(string $url, array|string $data = []): Response
     {
@@ -197,7 +197,7 @@ final class Client
      *
      * @param  array<string, mixed>|string  $data
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function patch(string $url, array|string $data = []): Response
     {
@@ -209,7 +209,7 @@ final class Client
      *
      * @param  array<string, mixed>|string  $data
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function delete(string $url, array|string $data = []): Response
     {
@@ -221,7 +221,7 @@ final class Client
      *
      * @param  array<string, mixed>|string|null  $data
      *
-     * @throws RequestException On a transport failure (network, TLS, proxy, timeout).
+     * @throws WreqException On a transport failure (network, TLS, proxy, timeout).
      */
     public function send(string $method, string $url, array|string|null $data = null): Response
     {

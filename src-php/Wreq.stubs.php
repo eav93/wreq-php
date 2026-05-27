@@ -75,7 +75,7 @@ namespace Wreq\Ext {
     /**
      * Connection could not be established (DNS, refused, reset).
      */
-    class ConnectionException extends \Wreq\Ext\RequestException {
+    class ConnectionException extends \Wreq\Ext\WreqException {
         public function __construct() {}
     }
 
@@ -111,14 +111,7 @@ namespace Wreq\Ext {
     /**
      * Redirect policy was violated (loop or limit exceeded).
      */
-    class RedirectException extends \Wreq\Ext\RequestException {
-        public function __construct() {}
-    }
-
-    /**
-     * Base class for every error raised by the extension. Extends `\Exception`.
-     */
-    class RequestException extends \Exception {
+    class RedirectException extends \Wreq\Ext\WreqException {
         public function __construct() {}
     }
 
@@ -181,23 +174,23 @@ namespace Wreq\Ext {
     }
 
     /**
-     * Raised by `Response::throw()` for a 4xx/5xx status.
-     */
-    class StatusException extends \Wreq\Ext\RequestException {
-        public function __construct() {}
-    }
-
-    /**
      * Request exceeded its timeout.
      */
-    class TimeoutException extends \Wreq\Ext\RequestException {
+    class TimeoutException extends \Wreq\Ext\WreqException {
         public function __construct() {}
     }
 
     /**
      * TLS handshake / certificate failure.
      */
-    class TlsException extends \Wreq\Ext\RequestException {
+    class TlsException extends \Wreq\Ext\WreqException {
+        public function __construct() {}
+    }
+
+    /**
+     * Base class for every error raised by the extension. Extends `\Exception`.
+     */
+    class WreqException extends \Exception {
         public function __construct() {}
     }
 }
