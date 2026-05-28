@@ -45,15 +45,18 @@ namespace Wreq\Ext {
          * * `method`  — HTTP method (`GET`, `POST`, …).
          * * `url`     — fully-formed URL (the PHP layer appends any query string).
          * * `headers` — per-request headers (`name => value`).
-         * * `body`    — raw request body, already encoded by the PHP layer.
+         * * `body`    — raw request body as a PHP string. Read via `zend_str()`
+         *   so non-UTF-8 bytes (protobuf, msgpack, raw files, etc.) survive
+         *   intact; taking it as a Rust `String` would refuse anything but valid
+         *   UTF-8 because PHP strings are byte arrays, not Unicode.
          *
          * @param string $method
          * @param string $url
          * @param array|null $headers
-         * @param string|null $body
+         * @param mixed $body
          * @return \Wreq\Ext\Response
          */
-        public function request(string $method, string $url, ?array $headers = null, ?string $body = null): \Wreq\Ext\Response {}
+        public function request(string $method, string $url, ?array $headers = null, mixed $body = null): \Wreq\Ext\Response {}
 
         /**
          * Executes a `multipart/form-data` request.

@@ -57,6 +57,41 @@ final class PendingRequestTest extends TestCase
         );
     }
 
+    public function test_with_headers_replaces_case_insensitively(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->withHeader('Content-Type', 'application/json')
+            ->withHeaders(['content-type' => 'text/plain'])
+            ->get('https://api.test/');
+
+        $headers = $ext->lastRequest['headers'];
+        $matched = array_values(array_filter(
+            array_keys($headers),
+            fn ($k) => strtolower((string) $k) === 'content-type',
+        ));
+
+        $this->assertCount(1, $matched, 'duplicate Content-Type entries detected');
+        $this->assertSame('text/plain', $headers[$matched[0]]);
+    }
+
+    public function test_user_supplied_content_type_wins_over_default(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->withHeader('content-type', 'application/vnd.api+json')
+            ->post('https://api.test/', ['name' => 'Ada']);
+
+        $headers = $ext->lastRequest['headers'];
+        $matched = array_values(array_filter(
+            array_keys($headers),
+            fn ($k) => strtolower((string) $k) === 'content-type',
+        ));
+
+        $this->assertCount(1, $matched, 'default Content-Type leaked alongside user value');
+        $this->assertSame('application/vnd.api+json', $headers[$matched[0]]);
+    }
+
     public function test_with_token_sets_authorization_header(): void
     {
         $ext = new FakeExtClient;

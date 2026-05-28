@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use ext_php_rs::exception::PhpException;
 use ext_php_rs::prelude::*;
-use ext_php_rs::types::ZendHashTable;
+use ext_php_rs::types::{ZendHashTable, Zval};
 
 use crate::convert::headers_from_table;
 use crate::emulation::EmulationConfig;
@@ -43,17 +43,25 @@ impl Client {
     /// * `method`  — HTTP method (`GET`, `POST`, …).
     /// * `url`     — fully-formed URL (the PHP layer appends any query string).
     /// * `headers` — per-request headers (`name => value`).
-    /// * `body`    — raw request body, already encoded by the PHP layer.
+    /// * `body`    — raw request body as a PHP string. Read via `zend_str()`
+    ///   so non-UTF-8 bytes (protobuf, msgpack, raw files, etc.) survive
+    ///   intact; taking it as a Rust `String` would refuse anything but valid
+    ///   UTF-8 because PHP strings are byte arrays, not Unicode.
     pub fn request(
         &self,
         method: &str,
         url: &str,
         headers: Option<&ZendHashTable>,
-        body: Option<String>,
+        body: Option<&Zval>,
     ) -> PhpResult<Response> {
         let mut builder = self.request_builder(method, url, headers)?;
-        if let Some(body) = body {
-            builder = builder.body(body);
+        if let Some(zv) = body {
+            let bytes = zv
+                .zend_str()
+                .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
+                .as_bytes()
+                .to_vec();
+            builder = builder.body(bytes);
         }
         self.execute(builder)
     }

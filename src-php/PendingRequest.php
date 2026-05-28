@@ -48,12 +48,16 @@ final class PendingRequest
     /**
      * Adds request headers.
      *
+     * Case-insensitive: a later call with `'content-type'` replaces an earlier
+     * `'Content-Type'` instead of producing two header entries, which would
+     * otherwise be sent as a malformed multi-value header.
+     *
      * @param  array<string, string>  $headers
      */
     public function withHeaders(array $headers): self
     {
         $clone = clone $this;
-        $clone->headers = array_merge($this->headers, $headers);
+        $clone->headers = self::mergeHeaders($this->headers, $headers);
 
         return $clone;
     }
@@ -319,10 +323,10 @@ final class PendingRequest
         } elseif (is_array($data) && $data !== []) {
             if ($this->bodyFormat === 'form') {
                 $body = http_build_query($data);
-                $headers += ['Content-Type' => 'application/x-www-form-urlencoded'];
+                $headers = self::defaultHeader($headers, 'Content-Type', 'application/x-www-form-urlencoded');
             } else {
                 $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-                $headers += ['Content-Type' => 'application/json'];
+                $headers = self::defaultHeader($headers, 'Content-Type', 'application/json');
             }
         }
 
@@ -347,5 +351,62 @@ final class PendingRequest
         $separator = str_contains($url, '?') ? '&' : '?';
 
         return $url.$separator.http_build_query($this->query);
+    }
+
+    /**
+     * Case-insensitive header merge. `$additions` win over existing entries
+     * regardless of case so a follow-up `withHeader('content-type', …)` does
+     * not produce a second `Content-Type` line on the wire.
+     *
+     * @param  array<string, string>  $existing
+     * @param  array<string, string>  $additions
+     * @return array<string, string>
+     */
+    private static function mergeHeaders(array $existing, array $additions): array
+    {
+        foreach ($additions as $name => $value) {
+            $existing = self::removeHeader($existing, $name);
+            $existing[$name] = $value;
+        }
+
+        return $existing;
+    }
+
+    /**
+     * Adds a header only when no entry with the same name (any case) exists.
+     * Used for the default `Content-Type` so a caller-supplied value wins.
+     *
+     * @param  array<string, string>  $headers
+     * @return array<string, string>
+     */
+    private static function defaultHeader(array $headers, string $name, string $value): array
+    {
+        $lower = strtolower($name);
+        foreach (array_keys($headers) as $existing) {
+            if (strtolower((string) $existing) === $lower) {
+                return $headers;
+            }
+        }
+        $headers[$name] = $value;
+
+        return $headers;
+    }
+
+    /**
+     * Removes every entry whose name matches `$name` case-insensitively.
+     *
+     * @param  array<string, string>  $headers
+     * @return array<string, string>
+     */
+    private static function removeHeader(array $headers, string $name): array
+    {
+        $lower = strtolower($name);
+        foreach (array_keys($headers) as $existing) {
+            if (strtolower((string) $existing) === $lower) {
+                unset($headers[$existing]);
+            }
+        }
+
+        return $headers;
     }
 }
