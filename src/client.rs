@@ -302,31 +302,39 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
 
     // ---- connection pool ----
     if let Some(n) = opt_long(opts, "pool_max_idle_per_host") {
-        builder = builder
-            .pool_max_idle_per_host(checked_usize("pool_max_idle_per_host", n).map_err(PhpException::default)?);
+        builder = builder.pool_max_idle_per_host(
+            checked_usize("pool_max_idle_per_host", n).map_err(PhpException::default)?,
+        );
     }
     if let Some(n) = opt_long(opts, "pool_max_size") {
-        builder = builder.pool_max_size(checked_u32("pool_max_size", n).map_err(PhpException::default)?);
+        builder =
+            builder.pool_max_size(checked_u32("pool_max_size", n).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout") {
-        builder = builder
-            .pool_idle_timeout(checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?);
+        builder = builder.pool_idle_timeout(
+            checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?,
+        );
     }
 
     // ---- timeouts ----
     if let Some(secs) = opt_f64(opts, "timeout") {
         if secs > 0.0 {
-            builder = builder.timeout(checked_duration("timeout", secs).map_err(PhpException::default)?);
+            builder =
+                builder.timeout(checked_duration("timeout", secs).map_err(PhpException::default)?);
         }
     }
     if let Some(secs) = opt_f64(opts, "read_timeout") {
         if secs > 0.0 {
-            builder = builder.read_timeout(checked_duration("read_timeout", secs).map_err(PhpException::default)?);
+            builder = builder.read_timeout(
+                checked_duration("read_timeout", secs).map_err(PhpException::default)?,
+            );
         }
     }
     if let Some(secs) = opt_f64(opts, "connect_timeout") {
         if secs > 0.0 {
-            builder = builder.connect_timeout(checked_duration("connect_timeout", secs).map_err(PhpException::default)?);
+            builder = builder.connect_timeout(
+                checked_duration("connect_timeout", secs).map_err(PhpException::default)?,
+            );
         }
     }
 
@@ -383,17 +391,20 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tcp_reuse_address(v);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive") {
-        builder = builder.tcp_keepalive(checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?);
+        builder = builder
+            .tcp_keepalive(checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval") {
-        builder = builder
-            .tcp_keepalive_interval(checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?);
+        builder = builder.tcp_keepalive_interval(
+            checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?,
+        );
     }
     // `tcp_user_timeout` is a Linux-family socket option (TCP_USER_TIMEOUT).
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
     if let Some(secs) = opt_f64(opts, "tcp_user_timeout") {
-        builder = builder
-            .tcp_user_timeout(checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?);
+        builder = builder.tcp_user_timeout(
+            checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?,
+        );
     }
     if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout") {
         builder = builder.tcp_happy_eyeballs_timeout(
@@ -401,16 +412,19 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         );
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries") {
-        builder = builder
-            .tcp_keepalive_retries(checked_u32("tcp_keepalive_retries", n).map_err(PhpException::default)?);
+        builder = builder.tcp_keepalive_retries(
+            checked_u32("tcp_keepalive_retries", n).map_err(PhpException::default)?,
+        );
     }
     if let Some(n) = opt_long(opts, "tcp_send_buffer_size") {
-        builder = builder
-            .tcp_send_buffer_size(checked_usize("tcp_send_buffer_size", n).map_err(PhpException::default)?);
+        builder = builder.tcp_send_buffer_size(
+            checked_usize("tcp_send_buffer_size", n).map_err(PhpException::default)?,
+        );
     }
     if let Some(n) = opt_long(opts, "tcp_recv_buffer_size") {
-        builder = builder
-            .tcp_recv_buffer_size(checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::default)?);
+        builder = builder.tcp_recv_buffer_size(
+            checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::default)?,
+        );
     }
 
     // ---- network ----
@@ -530,9 +544,9 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
         let name = key.to_string();
         if !KNOWN_OPTIONS.contains(&name.as_str()) {
             let msg = match closest_option(&name) {
-                Some(suggestion) => format!(
-                    "unknown client option '{name}'; did you mean '{suggestion}'?"
-                ),
+                Some(suggestion) => {
+                    format!("unknown client option '{name}'; did you mean '{suggestion}'?")
+                }
                 None => format!("unknown client option '{name}'"),
             };
             return Err(PhpException::default(msg));
@@ -633,9 +647,8 @@ fn checked_u32(option: &str, n: i64) -> std::result::Result<u32, String> {
 /// Converts a PHP integer option into a `usize`, rejecting negatives (and, on
 /// 32-bit targets, values that would not fit).
 fn checked_usize(option: &str, n: i64) -> std::result::Result<usize, String> {
-    usize::try_from(n).map_err(|_| {
-        format!("option '{option}' must be a non-negative integer that fits in usize")
-    })
+    usize::try_from(n)
+        .map_err(|_| format!("option '{option}' must be a non-negative integer that fits in usize"))
 }
 
 /// Parses a `"1.0".."1.3"` string into a `wreq` TLS version.
