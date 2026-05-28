@@ -184,3 +184,71 @@ impl Emulation {
         parse_emulation(name).is_ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_emulation_accepts_canonical_name() {
+        assert!(parse_emulation("chrome_131").is_ok());
+    }
+
+    #[test]
+    fn parse_emulation_tolerates_common_misspellings() {
+        assert!(parse_emulation("Chrome131").is_ok());
+        assert!(parse_emulation("chrome-131").is_ok());
+        assert!(parse_emulation("chrome 131").is_ok());
+        assert!(parse_emulation("  CHROME_131  ").is_ok());
+    }
+
+    #[test]
+    fn parse_emulation_rejects_unknown() {
+        let err = parse_emulation("not_a_browser").unwrap_err();
+        assert!(err.contains("not_a_browser"));
+    }
+
+    #[test]
+    fn parse_emulation_os_accepts_known_values() {
+        for os in ["windows", "macos", "linux", "android", "ios"] {
+            assert!(parse_emulation_os(os).is_ok(), "{os} should parse");
+        }
+    }
+
+    #[test]
+    fn parse_emulation_os_rejects_garbage() {
+        assert!(parse_emulation_os("plan9").is_err());
+    }
+
+    #[test]
+    fn variants_for_family_filters_by_prefix() {
+        let chromes = variants_for_family("chrome");
+        assert!(!chromes.is_empty(), "expected at least one chrome variant");
+        for emulation in &chromes {
+            assert!(
+                profile_name(emulation).starts_with("chrome_"),
+                "{:?} does not start with chrome_",
+                profile_name(emulation),
+            );
+        }
+    }
+
+    #[test]
+    fn variants_for_family_is_case_insensitive() {
+        assert_eq!(
+            variants_for_family("Chrome").len(),
+            variants_for_family("chrome").len(),
+        );
+    }
+
+    #[test]
+    fn variants_for_family_unknown_family_is_empty() {
+        assert!(variants_for_family("nopebrowser").is_empty());
+    }
+
+    #[test]
+    fn name_candidates_inserts_underscore_at_alpha_digit_boundary() {
+        let cands = name_candidates("Chrome131");
+        assert!(cands.iter().any(|c| c == "chrome_131"));
+    }
+}

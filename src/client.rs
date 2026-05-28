@@ -56,12 +56,17 @@ impl Client {
     ) -> PhpResult<Response> {
         let mut builder = self.request_builder(method, url, headers)?;
         if let Some(zv) = body {
-            let bytes = zv
-                .zend_str()
-                .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
-                .as_bytes()
-                .to_vec();
-            builder = builder.body(bytes);
+            // `Option<&Zval>` matches PHP `null` as `Some(null_zval)` (not
+            // `None`) because `&Zval` has no type restriction — so a missing
+            // body has to be distinguished by an explicit null check.
+            if !zv.is_null() {
+                let bytes = zv
+                    .zend_str()
+                    .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
+                    .as_bytes()
+                    .to_vec();
+                builder = builder.body(bytes);
+            }
         }
         self.execute(builder)
     }
@@ -297,29 +302,31 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
 
     // ---- connection pool ----
     if let Some(n) = opt_long(opts, "pool_max_idle_per_host") {
-        builder = builder.pool_max_idle_per_host(checked_usize("pool_max_idle_per_host", n)?);
+        builder = builder
+            .pool_max_idle_per_host(checked_usize("pool_max_idle_per_host", n).map_err(PhpException::default)?);
     }
     if let Some(n) = opt_long(opts, "pool_max_size") {
-        builder = builder.pool_max_size(checked_u32("pool_max_size", n)?);
+        builder = builder.pool_max_size(checked_u32("pool_max_size", n).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout") {
-        builder = builder.pool_idle_timeout(checked_duration("pool_idle_timeout", secs)?);
+        builder = builder
+            .pool_idle_timeout(checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?);
     }
 
     // ---- timeouts ----
     if let Some(secs) = opt_f64(opts, "timeout") {
         if secs > 0.0 {
-            builder = builder.timeout(checked_duration("timeout", secs)?);
+            builder = builder.timeout(checked_duration("timeout", secs).map_err(PhpException::default)?);
         }
     }
     if let Some(secs) = opt_f64(opts, "read_timeout") {
         if secs > 0.0 {
-            builder = builder.read_timeout(checked_duration("read_timeout", secs)?);
+            builder = builder.read_timeout(checked_duration("read_timeout", secs).map_err(PhpException::default)?);
         }
     }
     if let Some(secs) = opt_f64(opts, "connect_timeout") {
         if secs > 0.0 {
-            builder = builder.connect_timeout(checked_duration("connect_timeout", secs)?);
+            builder = builder.connect_timeout(checked_duration("connect_timeout", secs).map_err(PhpException::default)?);
         }
     }
 
@@ -376,28 +383,34 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tcp_reuse_address(v);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive") {
-        builder = builder.tcp_keepalive(checked_duration("tcp_keepalive", secs)?);
+        builder = builder.tcp_keepalive(checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval") {
-        builder = builder.tcp_keepalive_interval(checked_duration("tcp_keepalive_interval", secs)?);
+        builder = builder
+            .tcp_keepalive_interval(checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?);
     }
     // `tcp_user_timeout` is a Linux-family socket option (TCP_USER_TIMEOUT).
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
     if let Some(secs) = opt_f64(opts, "tcp_user_timeout") {
-        builder = builder.tcp_user_timeout(checked_duration("tcp_user_timeout", secs)?);
+        builder = builder
+            .tcp_user_timeout(checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout") {
-        builder = builder
-            .tcp_happy_eyeballs_timeout(checked_duration("tcp_happy_eyeballs_timeout", secs)?);
+        builder = builder.tcp_happy_eyeballs_timeout(
+            checked_duration("tcp_happy_eyeballs_timeout", secs).map_err(PhpException::default)?,
+        );
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries") {
-        builder = builder.tcp_keepalive_retries(checked_u32("tcp_keepalive_retries", n)?);
+        builder = builder
+            .tcp_keepalive_retries(checked_u32("tcp_keepalive_retries", n).map_err(PhpException::default)?);
     }
     if let Some(n) = opt_long(opts, "tcp_send_buffer_size") {
-        builder = builder.tcp_send_buffer_size(checked_usize("tcp_send_buffer_size", n)?);
+        builder = builder
+            .tcp_send_buffer_size(checked_usize("tcp_send_buffer_size", n).map_err(PhpException::default)?);
     }
     if let Some(n) = opt_long(opts, "tcp_recv_buffer_size") {
-        builder = builder.tcp_recv_buffer_size(checked_usize("tcp_recv_buffer_size", n)?);
+        builder = builder
+            .tcp_recv_buffer_size(checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::default)?);
     }
 
     // ---- network ----
@@ -605,23 +618,23 @@ fn opt_f64(opts: &ZendHashTable, key: &str) -> Option<f64> {
 }
 
 /// Converts a PHP integer option into a `u32`, rejecting negatives and values
-/// that would wrap, instead of silently truncating with `as u32`.
-fn checked_u32(option: &str, n: i64) -> PhpResult<u32> {
+/// that would wrap, instead of silently truncating with `as u32`. Returns a
+/// plain `String` so the function stays ext-php-rs-free and unit-testable
+/// without dragging in PHP runtime symbols.
+fn checked_u32(option: &str, n: i64) -> std::result::Result<u32, String> {
     u32::try_from(n).map_err(|_| {
-        PhpException::default(format!(
+        format!(
             "option '{option}' must be an integer between 0 and {}",
             u32::MAX
-        ))
+        )
     })
 }
 
 /// Converts a PHP integer option into a `usize`, rejecting negatives (and, on
 /// 32-bit targets, values that would not fit).
-fn checked_usize(option: &str, n: i64) -> PhpResult<usize> {
+fn checked_usize(option: &str, n: i64) -> std::result::Result<usize, String> {
     usize::try_from(n).map_err(|_| {
-        PhpException::default(format!(
-            "option '{option}' must be a non-negative integer that fits in usize"
-        ))
+        format!("option '{option}' must be a non-negative integer that fits in usize")
     })
 }
 
@@ -641,20 +654,109 @@ fn parse_tls_version(value: &str) -> Result<wreq::tls::TlsVersion, String> {
 
 /// Converts a seconds value from PHP into a `Duration`, rejecting NaN, infinity,
 /// negatives and absurdly large values instead of letting `Duration::from_secs_f64`
-/// panic inside the extension.
-fn checked_duration(option: &str, secs: f64) -> PhpResult<Duration> {
+/// panic inside the extension. Returns a plain `String` for unit-test friendliness.
+fn checked_duration(option: &str, secs: f64) -> std::result::Result<Duration, String> {
     // One year — any timeout/keep-alive beyond this is certainly a mistake.
     const MAX_SECS: f64 = 31_536_000.0;
 
     if !secs.is_finite() || secs < 0.0 {
-        return Err(PhpException::default(format!(
+        return Err(format!(
             "option '{option}' must be a finite, non-negative number of seconds"
-        )));
+        ));
     }
     if secs > MAX_SECS {
-        return Err(PhpException::default(format!(
+        return Err(format!(
             "option '{option}' is unreasonably large ({secs} seconds)"
-        )));
+        ));
     }
     Ok(Duration::from_secs_f64(secs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_tls_version_accepts_canonical_strings() {
+        for input in ["1.0", "1.1", "1.2", "1.3"] {
+            assert!(parse_tls_version(input).is_ok(), "{input} should parse");
+        }
+    }
+
+    #[test]
+    fn parse_tls_version_accepts_terse_forms() {
+        assert!(parse_tls_version("12").is_ok());
+        assert!(parse_tls_version("13").is_ok());
+        assert!(parse_tls_version(" 1.2 ").is_ok());
+    }
+
+    #[test]
+    fn parse_tls_version_rejects_unknown() {
+        assert!(parse_tls_version("1.4").is_err());
+        assert!(parse_tls_version("ssl3").is_err());
+    }
+
+    #[test]
+    fn checked_u32_accepts_in_range() {
+        assert_eq!(checked_u32("k", 0).unwrap(), 0);
+        assert_eq!(checked_u32("k", 42).unwrap(), 42);
+        assert_eq!(checked_u32("k", u32::MAX as i64).unwrap(), u32::MAX);
+    }
+
+    #[test]
+    fn checked_u32_rejects_negatives_and_overflow() {
+        assert!(checked_u32("k", -1).is_err());
+        assert!(checked_u32("k", (u32::MAX as i64) + 1).is_err());
+    }
+
+    #[test]
+    fn checked_usize_rejects_negatives() {
+        assert!(checked_usize("k", -1).is_err());
+        assert_eq!(checked_usize("k", 7).unwrap(), 7);
+    }
+
+    #[test]
+    fn checked_duration_rejects_nan_and_infinity() {
+        assert!(checked_duration("k", f64::NAN).is_err());
+        assert!(checked_duration("k", f64::INFINITY).is_err());
+        assert!(checked_duration("k", f64::NEG_INFINITY).is_err());
+    }
+
+    #[test]
+    fn checked_duration_rejects_negatives_and_silly_large() {
+        assert!(checked_duration("k", -0.001).is_err());
+        // > 1 year, should be rejected as unreasonable
+        assert!(checked_duration("k", 60.0 * 60.0 * 24.0 * 366.0).is_err());
+    }
+
+    #[test]
+    fn checked_duration_accepts_typical_values() {
+        let d = checked_duration("k", 1.5).unwrap();
+        assert_eq!(d, Duration::from_millis(1_500));
+    }
+
+    #[test]
+    fn edit_distance_basic() {
+        assert_eq!(edit_distance("kitten", "kitten"), 0);
+        assert_eq!(edit_distance("kitten", "sitten"), 1);
+        assert_eq!(edit_distance("kitten", "sitting"), 3);
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("abc", ""), 3);
+    }
+
+    #[test]
+    fn closest_option_suggests_for_typo() {
+        // 1-edit typo
+        assert_eq!(
+            closest_option("pool_max_idel_per_host"),
+            Some("pool_max_idle_per_host"),
+        );
+        // 2-edit typo
+        assert_eq!(closest_option("timout"), Some("timeout"));
+    }
+
+    #[test]
+    fn closest_option_silent_when_far() {
+        assert_eq!(closest_option("completely_unrelated_name"), None);
+    }
 }
