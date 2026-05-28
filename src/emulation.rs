@@ -19,16 +19,29 @@ fn profile_name(emulation: &WreqEmulation) -> String {
     }
 }
 
-/// Picks a random profile from the full variant list.
-fn random_emulation() -> WreqEmulation {
+/// Picks a random profile from a slice of candidates.
+fn pick_random(candidates: &[&WreqEmulation]) -> Option<WreqEmulation> {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
 
-    let variants = WreqEmulation::VARIANTS;
+    if candidates.is_empty() {
+        return None;
+    }
     // `RandomState` is randomly seeded per construction — enough entropy for a
     // "pick a random browser" convenience helper.
     let seed = RandomState::new().build_hasher().finish() as usize;
-    variants[seed % variants.len()]
+    Some(*candidates[seed % candidates.len()])
+}
+
+/// Returns the variants whose canonical name starts with `family_` (e.g.
+/// `chrome` matches `chrome_131`, `chrome_140`, …). Family matching is
+/// case-insensitive.
+fn variants_for_family(family: &str) -> Vec<&'static WreqEmulation> {
+    let prefix = format!("{}_", family.trim().to_lowercase());
+    WreqEmulation::VARIANTS
+        .iter()
+        .filter(|emulation| profile_name(emulation).starts_with(&prefix))
+        .collect()
 }
 
 /// Parses a profile name into a `wreq-util` `Emulation`.
@@ -139,9 +152,31 @@ impl Emulation {
         WreqEmulation::VARIANTS.iter().map(profile_name).collect()
     }
 
-    /// A random profile name.
-    pub fn random() -> String {
-        profile_name(&random_emulation())
+    /// Picks a random profile, optionally restricted to a browser family
+    /// (`chrome`, `firefox`, `safari`, `opera`, `edge`, `okhttp`, …). Throws
+    /// when the family has no profiles, so a typo is loud instead of silently
+    /// returning the same value as `random()`.
+    pub fn random(family: Option<&str>) -> PhpResult<String> {
+        let candidates = match family {
+            Some(family) => variants_for_family(family),
+            None => WreqEmulation::VARIANTS.iter().collect(),
+        };
+        let pick = pick_random(&candidates).ok_or_else(|| {
+            ext_php_rs::exception::PhpException::default(format!(
+                "no emulation profile matches family '{}'",
+                family.unwrap_or(""),
+            ))
+        })?;
+        Ok(profile_name(&pick))
+    }
+
+    /// All profile names that belong to a given browser family, in the order
+    /// `wreq-util` declares them. Returns an empty list for an unknown family.
+    pub fn like(family: &str) -> Vec<String> {
+        variants_for_family(family)
+            .iter()
+            .map(|e| profile_name(e))
+            .collect()
     }
 
     /// Whether the given profile name is recognized.

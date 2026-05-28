@@ -12,9 +12,14 @@ use Wreq\Ext\Client;
 /**
  * Locates and loads the native `wreq_php` extension.
  *
- * A PHP extension must normally be enabled in `php.ini`. For CLI/dev use we
- * also attempt a runtime `dl()` of the binary fetched by the Composer
- * installer. Production should add `extension=...` to `php.ini`.
+ * Production must enable it in `php.ini`:  `extension=/path/to/wreq_php.so`.
+ *
+ * For CLI we additionally try `dl('wreq_php.{so,dll}')` — `dl()` always
+ * resolves names against `extension_dir` regardless of the path passed, so it
+ * only works when the operator already placed the binary there under the
+ * conventional filename. The Composer-fetched binary in `vendor/.../runtime/`
+ * is not in `extension_dir` and will not be picked up by `dl()`; the helpful
+ * error message below tells the user how to wire it up instead.
  *
  * @internal
  */
@@ -56,19 +61,22 @@ final class Extension
     }
 
     /**
-     * Attempts to `dl()` the binary (only works on CLI with `enable_dl=On`).
+     * Tries `dl('wreq_php.{so,dll}')`. PHP strips any path and looks in
+     * `extension_dir` regardless — so this succeeds *only* when the operator
+     * has placed the binary there manually under the conventional filename
+     * (and `enable_dl=On` is set, which is CLI-only on most builds).
+     *
+     * The Composer-fetched binary in `vendor/.../runtime/` is intentionally
+     * NOT auto-copied here: writing into `extension_dir` typically needs root.
      */
     private static function tryLoad(): bool
     {
-        $path = self::binaryPath();
-
-        if ($path === null || ! function_exists('dl')) {
+        if (! function_exists('dl')) {
             return false;
         }
 
-        // `dl()` resolves names against `extension_dir`; an absolute path only
-        // works when its directory matches. We still try by basename.
-        $loaded = @dl(basename($path));
+        $candidate = self::NAME.(PHP_OS_FAMILY === 'Windows' ? '.dll' : '.so');
+        $loaded = @dl($candidate);
 
         return $loaded && extension_loaded(self::NAME);
     }

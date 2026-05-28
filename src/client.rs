@@ -251,15 +251,37 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
             .map_err(|e| PhpException::default(format!("failed to build HTTP client: {e}")));
     };
 
+    validate_options(opts)?;
+
     // ---- emulation ----
-    if let Some(emulation) = opt_str(opts, "emulation") {
-        let os = opt_str(opts, "emulation_os");
+    // Two surface forms, both documented in the README:
+    //   'emulation' => 'chrome_131'                              // flat
+    //   'emulation' => ['profile' => 'chrome_131', 'os' => 'windows']  // nested
+    // The nested form lets callers package the random/like helpers into one
+    // value without scattering `emulation_os` next to it. A nested `os` wins
+    // over a top-level `emulation_os`.
+    if let Some(zv) = opts.get("emulation") {
+        let (profile, nested_os) = if let Some(inner) = zv.array() {
+            let profile = inner.get("profile").and_then(|z| z.str()).ok_or_else(|| {
+                PhpException::default("emulation['profile'] must be a string".into())
+            })?;
+            let os = inner.get("os").and_then(|z| z.str());
+            (profile, os)
+        } else if let Some(name) = zv.str() {
+            (name, None)
+        } else {
+            return Err(PhpException::default(
+                "option 'emulation' must be a string or an array".into(),
+            ));
+        };
+
+        let os = nested_os.or_else(|| opt_str(opts, "emulation_os"));
         let skip_http2 = opt_bool(opts, "skip_http2").unwrap_or(false);
         let skip_headers = opt_bool(opts, "skip_headers").unwrap_or(false);
         let config = if os.is_some() || skip_http2 || skip_headers {
-            EmulationConfig::detailed(emulation, os, skip_http2, skip_headers)
+            EmulationConfig::detailed(profile, os, skip_http2, skip_headers)
         } else {
-            EmulationConfig::from_name(emulation)
+            EmulationConfig::from_name(profile)
         }
         .map_err(PhpException::default)?;
         builder = config.apply(builder);
@@ -435,6 +457,126 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     builder
         .build()
         .map_err(|e| PhpException::default(format!("failed to build HTTP client: {e}")))
+}
+
+/// Every option key `build_wreq_client` knows. Used to reject typos before
+/// they silently no-op. `base_url` is consumed by the PHP layer (`Wreq\Client`)
+/// and passes through here untouched, so we accept it without applying it.
+const KNOWN_OPTIONS: &[&str] = &[
+    "emulation",
+    "emulation_os",
+    "skip_http2",
+    "skip_headers",
+    "user_agent",
+    "headers",
+    "base_url",
+    "pool_max_idle_per_host",
+    "pool_max_size",
+    "pool_idle_timeout",
+    "timeout",
+    "read_timeout",
+    "connect_timeout",
+    "cookies",
+    "gzip",
+    "brotli",
+    "zstd",
+    "deflate",
+    "max_redirects",
+    "referer",
+    "http1_only",
+    "http2_only",
+    "https_only",
+    "connection_verbose",
+    "tcp_nodelay",
+    "tcp_reuse_address",
+    "tcp_keepalive",
+    "tcp_keepalive_interval",
+    "tcp_user_timeout",
+    "tcp_happy_eyeballs_timeout",
+    "tcp_keepalive_retries",
+    "tcp_send_buffer_size",
+    "tcp_recv_buffer_size",
+    "local_address",
+    "interface",
+    "proxy",
+    "no_proxy",
+    "no_hickory_dns",
+    "resolve",
+    "verify",
+    "tls_sni",
+    "tls_info",
+    "min_tls_version",
+    "max_tls_version",
+];
+
+/// Rejects unknown option keys and mutually exclusive combinations *before*
+/// `build_wreq_client` walks the table — silently ignoring a typo like
+/// `pool_max_idel_per_host` used to be a tedious-to-debug footgun.
+fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
+    for (key, _) in opts.iter() {
+        let name = key.to_string();
+        if !KNOWN_OPTIONS.contains(&name.as_str()) {
+            let msg = match closest_option(&name) {
+                Some(suggestion) => format!(
+                    "unknown client option '{name}'; did you mean '{suggestion}'?"
+                ),
+                None => format!("unknown client option '{name}'"),
+            };
+            return Err(PhpException::default(msg));
+        }
+    }
+
+    if opt_bool(opts, "http1_only").unwrap_or(false)
+        && opt_bool(opts, "http2_only").unwrap_or(false)
+    {
+        return Err(PhpException::default(
+            "options 'http1_only' and 'http2_only' are mutually exclusive".into(),
+        ));
+    }
+
+    if opts.get("proxy").is_some() && opt_bool(opts, "no_proxy").unwrap_or(false) {
+        return Err(PhpException::default(
+            "options 'proxy' and 'no_proxy' are mutually exclusive".into(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Suggests the closest known option name if the input looks like a typo.
+/// Threshold of 3 edits keeps wrong-but-related names (`timeout` vs
+/// `proxy`) out of the suggestion while still catching common slips like
+/// `pool_max_idel_per_host` (1 edit from `pool_max_idle_per_host`).
+fn closest_option(input: &str) -> Option<&'static str> {
+    KNOWN_OPTIONS
+        .iter()
+        .map(|opt| (*opt, edit_distance(input, opt)))
+        .filter(|(_, d)| *d <= 3)
+        .min_by_key(|(_, d)| *d)
+        .map(|(opt, _)| opt)
+}
+
+/// Standard Levenshtein distance, two-row rolling buffer.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
 }
 
 /// Reads a numeric Zval as `f64`, accepting both PHP floats and integers.
