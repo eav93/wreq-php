@@ -596,6 +596,7 @@ dependencies = [
  "ext-php-rs-bindgen",
  "ext-php-rs-build",
  "ext-php-rs-derive",
+ "indexmap",
  "inventory",
  "native-tls",
  "once_cell",
@@ -2741,6 +2742,7 @@ name = "wreq_php"
 version = "0.1.0"
 dependencies = [
  "ext-php-rs",
+ "indexmap",
  "serde_json",
  "strum",
  "thiserror",

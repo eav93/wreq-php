@@ -19,7 +19,7 @@ use crate::convert::headers_from_table;
 use crate::emulation::EmulationConfig;
 use crate::error::map_wreq_error;
 use crate::response::Response;
-use crate::runtime::runtime;
+use crate::runtime;
 
 /// Reusable HTTP client with a dedicated connection pool.
 #[php_class]
@@ -118,7 +118,7 @@ impl Client {
 
     /// Sends the request on the shared runtime and reads the full response.
     fn execute(&self, builder: wreq::RequestBuilder) -> PhpResult<Response> {
-        runtime().block_on(async move {
+        runtime::block_on(async move {
             let resp = builder.send().await.map_err(map_wreq_error)?;
 
             let status = resp.status().as_u16();

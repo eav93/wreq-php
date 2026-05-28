@@ -42,9 +42,20 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
 
     module
         .info_function(module_info)
+        .shutdown_function(module_shutdown)
         .class::<Client>()
         .class::<Response>()
         .class::<Emulation>()
+}
+
+/// Module-shutdown (MSHUTDOWN) hook: drops the shared Tokio runtime so its
+/// I/O threads do not outlive the SAPI. Critical under module-unload hosts
+/// (mod_php, ZTS Apache); harmless under php-fpm/CLI where the process exits
+/// right after anyway.
+#[unsafe(no_mangle)]
+pub extern "C" fn module_shutdown(_type: i32, _module_number: i32) -> i32 {
+    runtime::shutdown();
+    0
 }
 
 /// Renders the wreq-php block shown by PHP's `module_info()`.
