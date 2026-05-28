@@ -7,10 +7,9 @@
 //! The body is read eagerly when the response is constructed, so every getter
 //! is idempotent and can be called any number of times.
 
-use std::collections::HashMap;
-
 use ext_php_rs::prelude::*;
 use ext_php_rs::types::{ZendStr, Zval};
+use indexmap::IndexMap;
 
 /// HTTP response returned by `Client::request()`.
 #[php_class]
@@ -70,9 +69,11 @@ impl Response {
         zv
     }
 
-    /// All headers as a map of lowercased name => list of values.
-    pub fn headers(&self) -> HashMap<String, Vec<String>> {
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    /// All headers as a map of lowercased name => list of values. Names appear
+    /// in the order they were first seen in the response, so `Set-Cookie`
+    /// ordering and other arrival-sensitive headers stay observable from PHP.
+    pub fn headers(&self) -> IndexMap<String, Vec<String>> {
+        let mut map: IndexMap<String, Vec<String>> = IndexMap::new();
         for (name, value) in &self.headers {
             map.entry(name.to_lowercase())
                 .or_default()
