@@ -22,6 +22,15 @@ pub struct WreqException;
 impl WreqException {}
 
 /// Class-entry accessor so the subclasses below can extend `WreqException`.
+///
+/// The short `extends(WreqException)` form is documented in
+/// `macros/classes.md` but in ext-php-rs-derive 0.11.13 it emits the parent's
+/// `CLASS_NAME` ("Wreq\\Ext\\WreqException") as the stub path *without* a
+/// leading backslash. Inside the `namespace Wreq\Ext { … }` block PHP then
+/// treats that as relative — resolving to `Wreq\Ext\Wreq\Ext\WreqException`
+/// — and PhpStorm flags the hierarchy as broken. The explicit form gives us
+/// a correct FQN in `Wreq.stubs.php` so we keep this helper until the upstream
+/// macro is fixed.
 fn wreq_exception_ce() -> &'static ClassEntry {
     <WreqException as RegisteredClass>::get_metadata().ce()
 }

@@ -138,7 +138,9 @@ namespace Wreq\Ext {
         public function header(string $name): ?string {}
 
         /**
-         * All headers as a map of lowercased name => list of values.
+         * All headers as a map of lowercased name => list of values. Names appear
+         * in the order they were first seen in the response, so `Set-Cookie`
+         * ordering and other arrival-sensitive headers stay observable from PHP.
          *
          * @return array
          */
