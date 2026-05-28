@@ -340,8 +340,9 @@ fn build_multipart(
 ///   `tcp_recv_buffer_size` (int); `connection_verbose` (bool).
 /// Network: `local_address` (IP string), `interface` (name, Unix only),
 ///   `proxy` (URL string — `http://`, `https://`, `socks4://`, `socks4a://`,
-///   `socks5://`, `socks5h://`), `no_proxy` (bool), `no_hickory_dns` (bool),
-///   `resolve` (map host => "ip:port").
+///   `socks5://`, `socks5h://`), `no_proxy` (bool), `proxy_resolve_local`
+///   (bool — resolve the destination locally and CONNECT to its IP; HTTP(S)
+///   proxies only), `no_hickory_dns` (bool), `resolve` (map host => "ip:port").
 /// TLS: `verify` (bool — cert + hostname), `tls_sni` (bool), `tls_info` (bool),
 ///   `min_tls_version`, `max_tls_version` (string `"1.0"`..`"1.3"`).
 fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client> {
@@ -536,8 +537,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.interface(iface.to_string());
     }
     if let Some(url) = opt_str(opts, "proxy") {
-        let proxy = wreq::Proxy::all(url)
+        let mut proxy = wreq::Proxy::all(url)
             .map_err(|e| PhpException::default(format!("invalid proxy '{url}': {e}")))?;
+        // Resolve the destination host locally and tunnel CONNECT to its IP
+        // (HTTP(S) proxies only); SNI and Host keep the original hostname.
+        if opt_bool(opts, "proxy_resolve_local").unwrap_or(false) {
+            proxy = proxy.resolve_local(true);
+        }
         builder = builder.proxy(proxy);
     }
     if opt_bool(opts, "no_proxy").unwrap_or(false) {
@@ -624,6 +630,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "interface",
     "proxy",
     "no_proxy",
+    "proxy_resolve_local",
     "no_hickory_dns",
     "resolve",
     "verify",

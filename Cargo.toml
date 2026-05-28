@@ -48,3 +48,10 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# Pending upstream PR https://github.com/0x676e67/wreq/pull/1185
+# (Proxy::resolve_local — local DNS for HTTP CONNECT). The `resolve-local`
+# branch is the same feature rebased onto the v6.0.0-rc.28 tag, so it stays
+# API-compatible with wreq-util 3.0.0-rc.11. Drop once the feature is released.
+[patch.crates-io]
+wreq = { git = "https://github.com/eav93/wreq.git", branch = "resolve-local" }
