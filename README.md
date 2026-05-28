@@ -153,7 +153,7 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 | `tcp_send_buffer_size` / `tcp_recv_buffer_size` | int | Socket buffer sizes, bytes. |
 | `local_address` | string | Bind to a local IP. |
 | `interface` | string | Bind to a network interface (Unix only). |
-| `proxy` | string | Proxy URL for all requests. |
+| `proxy` | string | Proxy URL for all requests (`http://`, `https://`, `socks4://`, `socks4a://`, `socks5://`, `socks5h://`). |
 | `no_proxy` | bool | Ignore proxies, including system ones. |
 | `no_hickory_dns` | bool | Use the system DNS resolver. |
 | `resolve` | array | DNS overrides, `host => "ip:port"`. |

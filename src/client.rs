@@ -243,7 +243,8 @@ fn build_multipart(
 ///   (float seconds); `tcp_keepalive_retries`, `tcp_send_buffer_size`,
 ///   `tcp_recv_buffer_size` (int); `connection_verbose` (bool).
 /// Network: `local_address` (IP string), `interface` (name, Unix only),
-///   `proxy` (URL string), `no_proxy` (bool), `no_hickory_dns` (bool),
+///   `proxy` (URL string — `http://`, `https://`, `socks4://`, `socks4a://`,
+///   `socks5://`, `socks5h://`), `no_proxy` (bool), `no_hickory_dns` (bool),
 ///   `resolve` (map host => "ip:port").
 /// TLS: `verify` (bool — cert + hostname), `tls_sni` (bool), `tls_info` (bool),
 ///   `min_tls_version`, `max_tls_version` (string `"1.0"`..`"1.3"`).
