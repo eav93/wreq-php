@@ -94,4 +94,21 @@ final class ResponseTest extends TestCase
         $this->expectException(RequestException::class);
         (new Response(new FakeRawResponse(status: 500)))->throw();
     }
+
+    public function test_sink_metadata_is_exposed(): void
+    {
+        $raw = new FakeRawResponse(status: 200, body: '', downloadedBytes: 4096);
+        $response = new Response($raw, '/tmp/out.bin');
+
+        $this->assertSame('/tmp/out.bin', $response->savedTo());
+        $this->assertSame(4096, $response->downloadedBytes());
+    }
+
+    public function test_in_memory_response_has_no_sink_metadata(): void
+    {
+        $response = new Response(new FakeRawResponse(body: 'hello'));
+
+        $this->assertNull($response->savedTo());
+        $this->assertNull($response->downloadedBytes());
+    }
 }

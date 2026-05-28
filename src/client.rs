@@ -54,21 +54,26 @@ impl Client {
         headers: Option<&ZendHashTable>,
         body: Option<&Zval>,
     ) -> PhpResult<Response> {
-        let mut builder = self.request_builder(method, url, headers)?;
-        if let Some(zv) = body {
-            // `Option<&Zval>` matches PHP `null` as `Some(null_zval)` (not
-            // `None`) because `&Zval` has no type restriction — so a missing
-            // body has to be distinguished by an explicit null check.
-            if !zv.is_null() {
-                let bytes = zv
-                    .zend_str()
-                    .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
-                    .as_bytes()
-                    .to_vec();
-                builder = builder.body(bytes);
-            }
-        }
+        let builder = apply_body(self.request_builder(method, url, headers)?, body)?;
         self.execute(builder)
+    }
+
+    /// Executes a request and streams the response body straight to `path`,
+    /// never materializing it as a PHP string. Built for large downloads: the
+    /// body is written to disk chunk by chunk, so memory stays flat regardless
+    /// of how big the response is. The returned `Response` carries status and
+    /// headers but an empty body; `downloaded_bytes()` reports how much was
+    /// written.
+    pub fn request_to_file(
+        &self,
+        method: &str,
+        url: &str,
+        headers: Option<&ZendHashTable>,
+        body: Option<&Zval>,
+        path: &str,
+    ) -> PhpResult<Response> {
+        let builder = apply_body(self.request_builder(method, url, headers)?, body)?;
+        self.execute_to_file(builder, path)
     }
 
     /// Executes a `multipart/form-data` request.
@@ -133,12 +138,70 @@ impl Client {
     fn execute(&self, builder: wreq::RequestBuilder) -> PhpResult<Response> {
         runtime::block_on(async move {
             let resp = builder.send().await.map_err(map_wreq_error)?;
+            let meta = ResponseMeta::extract(&resp);
 
-            let status = resp.status().as_u16();
-            let version = format!("{:?}", resp.version());
-            let url = resp.uri().to_string();
-            let remote_addr = resp.remote_addr().map(|addr| addr.to_string());
-            let headers = resp
+            // Keep the refcounted `Bytes` as-is; the only copy into PHP-owned
+            // memory happens later, in `Response::body()`.
+            let body = resp.bytes().await.map_err(map_wreq_error)?;
+
+            Ok(meta.into_response(body))
+        })
+    }
+
+    /// Sends the request and streams the body to `path` chunk by chunk, so peak
+    /// memory stays flat no matter how large the response is.
+    fn execute_to_file(&self, builder: wreq::RequestBuilder, path: &str) -> PhpResult<Response> {
+        use std::io::Write;
+
+        runtime::block_on(async move {
+            let mut resp = builder.send().await.map_err(map_wreq_error)?;
+            let meta = ResponseMeta::extract(&resp);
+
+            let file = std::fs::File::create(path).map_err(|e| {
+                PhpException::default(format!("failed to open download sink '{path}': {e}"))
+            })?;
+            // Buffer the writes: chunks arrive in network-sized pieces, and
+            // batching them into larger syscalls keeps large downloads fast.
+            let mut writer = std::io::BufWriter::new(file);
+            let mut total: u64 = 0;
+
+            // `chunk()` yields the body incrementally; nothing larger than one
+            // network chunk is ever held in memory at once.
+            while let Some(chunk) = resp.chunk().await.map_err(map_wreq_error)? {
+                writer.write_all(&chunk).map_err(|e| {
+                    PhpException::default(format!("failed writing to download sink '{path}': {e}"))
+                })?;
+                total += chunk.len() as u64;
+            }
+            writer.flush().map_err(|e| {
+                PhpException::default(format!("failed flushing download sink '{path}': {e}"))
+            })?;
+
+            Ok(meta.into_download(total))
+        })
+    }
+}
+
+/// Response metadata extracted off the wire before the body is consumed.
+///
+/// Both `execute` (in-memory) and `execute_to_file` (streamed) pull the same
+/// status/headers/address up front, then diverge on how they handle the body.
+struct ResponseMeta {
+    status: u16,
+    version: String,
+    url: String,
+    remote_addr: Option<String>,
+    headers: Vec<(String, String)>,
+}
+
+impl ResponseMeta {
+    fn extract(resp: &wreq::Response) -> Self {
+        Self {
+            status: resp.status().as_u16(),
+            version: format!("{:?}", resp.version()),
+            url: resp.uri().to_string(),
+            remote_addr: resp.remote_addr().map(|addr| addr.to_string()),
+            headers: resp
                 .headers()
                 .iter()
                 .map(|(name, value)| {
@@ -147,20 +210,53 @@ impl Client {
                         String::from_utf8_lossy(value.as_bytes()).into_owned(),
                     )
                 })
-                .collect();
-
-            let body = resp.bytes().await.map_err(map_wreq_error)?.to_vec();
-
-            Ok(Response::new(
-                status,
-                version,
-                url,
-                headers,
-                body,
-                remote_addr,
-            ))
-        })
+                .collect(),
+        }
     }
+
+    fn into_response(self, body: bytes::Bytes) -> Response {
+        Response::new(
+            self.status,
+            self.version,
+            self.url,
+            self.headers,
+            body,
+            self.remote_addr,
+        )
+    }
+
+    fn into_download(self, downloaded_bytes: u64) -> Response {
+        Response::new_download(
+            self.status,
+            self.version,
+            self.url,
+            self.headers,
+            self.remote_addr,
+            downloaded_bytes,
+        )
+    }
+}
+
+/// Applies an optional PHP request body to the builder.
+///
+/// `Option<&Zval>` matches PHP `null` as `Some(null_zval)` (not `None`) because
+/// `&Zval` has no type restriction, so a missing body is distinguished by an
+/// explicit null check. Read via `zend_str()` so non-UTF-8 bytes survive.
+fn apply_body(
+    builder: wreq::RequestBuilder,
+    body: Option<&Zval>,
+) -> PhpResult<wreq::RequestBuilder> {
+    if let Some(zv) = body {
+        if !zv.is_null() {
+            let bytes = zv
+                .zend_str()
+                .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
+                .as_bytes()
+                .to_vec();
+            return Ok(builder.body(bytes));
+        }
+    }
+    Ok(builder)
 }
 
 /// Builds a `multipart/form-data` form from PHP-side text fields and files.

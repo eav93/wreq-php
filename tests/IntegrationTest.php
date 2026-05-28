@@ -192,6 +192,30 @@ final class IntegrationTest extends TestCase
         $this->assertSame('file-content-here', $response->json('files.document'));
     }
 
+    public function test_sink_streams_body_to_file(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'wreq_sink_');
+        if ($path === false) {
+            $this->markTestSkipped('cannot create temp file');
+        }
+
+        try {
+            $client = new Client(['timeout' => 30.0]);
+            // /bytes/N returns exactly N random bytes — a clean size to assert on.
+            $response = $client->sink($path)->get($this->httpbin.'/bytes/4096');
+            $this->skipIfHttpbinUnavailable($response);
+
+            $this->assertSame(200, $response->status());
+            $this->assertSame($path, $response->savedTo());
+            $this->assertSame(4096, $response->downloadedBytes());
+            // The body never enters PHP memory for a streamed response.
+            $this->assertSame('', $response->body());
+            $this->assertSame(4096, filesize($path));
+        } finally {
+            @unlink($path);
+        }
+    }
+
     /**
      * httpbin.org is a free shared service that intermittently returns 5xx or
      * non-JSON error pages. When that happens, skip — these tests exercise the

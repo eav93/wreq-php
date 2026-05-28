@@ -73,6 +73,23 @@ namespace Wreq\Ext {
          * @return \Wreq\Ext\Response
          */
         public function requestMultipart(string $method, string $url, ?array $headers = null, ?array $fields = null, ?array $files = null): \Wreq\Ext\Response {}
+
+        /**
+         * Executes a request and streams the response body straight to `path`,
+         * never materializing it as a PHP string. Built for large downloads: the
+         * body is written to disk chunk by chunk, so memory stays flat regardless
+         * of how big the response is. The returned `Response` carries status and
+         * headers but an empty body; `downloaded_bytes()` reports how much was
+         * written.
+         *
+         * @param string $method
+         * @param string $url
+         * @param array|null $headers
+         * @param mixed $body
+         * @param string $path
+         * @return \Wreq\Ext\Response
+         */
+        public function requestToFile(string $method, string $url, ?array $headers = null, mixed $body = null, string $path): \Wreq\Ext\Response {}
     }
 
     /**
@@ -143,6 +160,15 @@ namespace Wreq\Ext {
          * @return mixed
          */
         public function body(): mixed {}
+
+        /**
+         * Number of bytes written to disk when the body was streamed via a sink,
+         * or `null` for an ordinary in-memory response. Lets the PHP layer report
+         * the download size without ever materializing the body as a string.
+         *
+         * @return int|null
+         */
+        public function downloadedBytes(): ?int {}
 
         /**
          * A single header by name (case-insensitive); multiple values are joined

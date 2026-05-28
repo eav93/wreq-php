@@ -16,6 +16,9 @@ final class FakeExtClient
     /** @var array{method: string, url: string, headers: mixed, fields: mixed, files: mixed}|null */
     public ?array $lastMultipart = null;
 
+    /** @var array{method: string, url: string, headers: mixed, body: string|null, path: string}|null */
+    public ?array $lastDownload = null;
+
     public function __construct(private readonly FakeRawResponse $response = new FakeRawResponse) {}
 
     /**
@@ -51,6 +54,27 @@ final class FakeExtClient
             'headers' => $headers,
             'fields' => $fields,
             'files' => $files,
+        ];
+
+        return $this->response;
+    }
+
+    /**
+     * @param  array<string, string>|null  $headers
+     */
+    public function requestToFile(
+        string $method,
+        string $url,
+        ?array $headers = null,
+        ?string $body = null,
+        string $path = '',
+    ): FakeRawResponse {
+        $this->lastDownload = [
+            'method' => $method,
+            'url' => $url,
+            'headers' => $headers,
+            'body' => $body,
+            'path' => $path,
         ];
 
         return $this->response;

@@ -19,6 +19,7 @@ final class FakeRawResponse
         private readonly string $version = 'HTTP/2.0',
         private readonly string $url = 'https://example.test/',
         private readonly ?string $remoteAddr = null,
+        private readonly ?int $downloadedBytes = null,
     ) {}
 
     public function status(): int
@@ -44,6 +45,11 @@ final class FakeRawResponse
     public function remoteAddr(): ?string
     {
         return $this->remoteAddr;
+    }
+
+    public function downloadedBytes(): ?int
+    {
+        return $this->downloadedBytes;
     }
 
     /**

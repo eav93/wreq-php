@@ -121,6 +121,12 @@ $client->withToken('secret')->withHeaders(['X-Trace' => '1'])->get($url);
 $client->attach('photo', file_get_contents('p.jpg'), 'p.jpg', 'image/jpeg')
        ->post($url, ['caption' => 'Sunset']);
 
+// Stream large downloads straight to disk — the body never enters PHP memory,
+// so peak memory stays flat no matter how big the file is.
+$response = $client->sink('/tmp/large.zip')->get('https://example.com/large.zip');
+$response->savedTo();         // '/tmp/large.zip'
+$response->downloadedBytes(); // bytes written (body() is empty for a sink)
+
 // Release the pool and close every idle socket now.
 $client->close();
 ```

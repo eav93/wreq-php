@@ -30,6 +30,13 @@ final class PendingRequest
     private ?string $rawBody = null;
 
     /**
+     * Destination path for streaming the response body to disk. When set, the
+     * body is written straight to this file chunk by chunk and never loaded
+     * into PHP memory — see {@see sink()}.
+     */
+    private ?string $sink = null;
+
+    /**
      * Files for a `multipart/form-data` request.
      *
      * @var array<int, array{name: string, contents: string, filename?: string, content_type?: string}>
@@ -204,6 +211,26 @@ final class PendingRequest
     }
 
     /**
+     * Streams the response body straight to `$path` instead of loading it into
+     * memory. Built for large downloads: the body is written to disk chunk by
+     * chunk inside the native extension, so peak memory stays flat no matter
+     * how big the response is.
+     *
+     * The returned {@see Response} carries the status and headers but an empty
+     * `body()`; use {@see Response::savedTo()} for the path and
+     * {@see Response::downloadedBytes()} for the number of bytes written.
+     *
+     * Cannot be combined with `asMultipart()`.
+     */
+    public function sink(string $path): self
+    {
+        $clone = clone $this;
+        $clone->sink = $path;
+
+        return $clone;
+    }
+
+    /**
      * Sends a GET request.
      *
      * @param  array<string, mixed>  $query
@@ -302,6 +329,10 @@ final class PendingRequest
         // multipart/form-data: text fields + attached files; wreq sets the
         // Content-Type (with boundary) itself.
         if ($this->bodyFormat === 'multipart') {
+            if ($this->sink !== null) {
+                throw new \InvalidArgumentException('sink() cannot be combined with asMultipart()');
+            }
+
             $fields = is_array($data) ? $data : [];
 
             return new Response($this->ext->requestMultipart(
@@ -328,6 +359,14 @@ final class PendingRequest
                 $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
                 $headers = self::defaultHeader($headers, 'Content-Type', 'application/json');
             }
+        }
+
+        // With a sink set, stream the body straight to disk in the extension;
+        // the response comes back with an empty body and a byte count.
+        if ($this->sink !== null) {
+            $raw = $this->ext->requestToFile($method, $finalUrl, $headers, $body, $this->sink);
+
+            return new Response($raw, $this->sink);
         }
 
         $raw = $this->ext->request($method, $finalUrl, $headers, $body);

@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ext-php-rs = { version = "0.15.14", features = ["anyhow", "indexmap"] }
+bytes = "1"
 wreq = { version = "6.0.0-rc.28", features = [
     "cookies",
     "gzip",

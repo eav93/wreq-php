@@ -2774,6 +2774,7 @@ dependencies = [
 name = "wreq_php"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "ext-php-rs",
  "indexmap",
  "serde_json",

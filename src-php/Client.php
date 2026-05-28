@@ -129,6 +129,16 @@ final class Client
     }
 
     /**
+     * Starts an immutable request builder that streams the response body to
+     * `$path` instead of buffering it in memory. Built for large downloads —
+     * see {@see PendingRequest::sink()}.
+     */
+    public function sink(string $path): PendingRequest
+    {
+        return $this->newRequest()->sink($path);
+    }
+
+    /**
      * Starts an immutable request builder with an `Accept` header.
      */
     public function accept(string $contentType): PendingRequest

@@ -156,4 +156,53 @@ final class PendingRequestTest extends TestCase
         $one->post('https://api.test/upload');
         $this->assertCount(1, $ext->lastMultipart['files']);
     }
+
+    public function test_sink_routes_to_streaming_download(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->sink('/tmp/out.bin')
+            ->get('https://api.test/big', ['v' => 1]);
+
+        // The in-memory `request` path must not be touched; the download path is.
+        $this->assertNull($ext->lastRequest);
+        $this->assertSame('GET', $ext->lastDownload['method']);
+        $this->assertSame('https://api.test/big?v=1', $ext->lastDownload['url']);
+        $this->assertSame('/tmp/out.bin', $ext->lastDownload['path']);
+    }
+
+    public function test_sink_still_encodes_the_request_body(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->sink('/tmp/out.bin')
+            ->post('https://api.test/big', ['name' => 'Ada']);
+
+        $this->assertSame('{"name":"Ada"}', $ext->lastDownload['body']);
+        $this->assertSame('application/json', $ext->lastDownload['headers']['Content-Type']);
+    }
+
+    public function test_sink_is_immutable(): void
+    {
+        $ext = new FakeExtClient;
+        $base = new PendingRequest($ext);
+        $withSink = $base->sink('/tmp/out.bin');
+
+        $this->assertNotSame($base, $withSink);
+
+        $base->get('https://api.test/a');
+        $this->assertNotNull($ext->lastRequest);
+        $this->assertNull($ext->lastDownload);
+    }
+
+    public function test_sink_with_multipart_is_rejected(): void
+    {
+        $ext = new FakeExtClient;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest($ext))
+            ->asMultipart()
+            ->sink('/tmp/out.bin')
+            ->post('https://api.test/upload', ['title' => 'hi']);
+    }
 }

@@ -23,15 +23,40 @@ final class Response
 
     /**
      * @param  Ext\Response  $raw  The native response object.
+     * @param  string|null  $sink  Path the body was streamed to, if any.
      */
-    public function __construct(private readonly object $raw) {}
+    public function __construct(
+        private readonly object $raw,
+        private readonly ?string $sink = null,
+    ) {}
 
     /**
      * Raw response body as a string.
+     *
+     * Empty for a streamed (`sink`) response — the body was written to disk
+     * instead of being held in memory; use {@see savedTo()} for its path.
      */
     public function body(): string
     {
         return $this->raw->body();
+    }
+
+    /**
+     * Path the response body was streamed to via `sink()`, or `null` for an
+     * ordinary in-memory response.
+     */
+    public function savedTo(): ?string
+    {
+        return $this->sink;
+    }
+
+    /**
+     * Number of bytes written to disk for a streamed (`sink`) response, or
+     * `null` for an ordinary in-memory response.
+     */
+    public function downloadedBytes(): ?int
+    {
+        return $this->raw->downloadedBytes();
     }
 
     /**

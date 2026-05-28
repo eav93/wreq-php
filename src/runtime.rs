@@ -63,9 +63,27 @@ pub fn shutdown() {
 
 fn build() -> Runtime {
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+        .worker_threads(worker_threads())
         .enable_all()
         .thread_name("wreq-php-rt")
         .build()
         .expect("failed to build the wreq-php Tokio runtime")
+}
+
+/// Number of Tokio worker threads per process.
+///
+/// PHP is synchronous — at most one `block_on` runs at a time per worker — so a
+/// single thread is enough to drive a request while still letting the runtime
+/// keep idle keep-alive connections warm in the background (which a
+/// `current_thread` runtime could not do between requests). Under php-fpm every
+/// worker is its own process with its own runtime, so each extra thread is paid
+/// for N workers over: keeping the default at 1 avoids hundreds of idle threads
+/// on busy pools. `WREQ_PHP_WORKER_THREADS` lets heavily-concurrent setups tune
+/// it up without a rebuild.
+fn worker_threads() -> usize {
+    std::env::var("WREQ_PHP_WORKER_THREADS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(1)
 }
