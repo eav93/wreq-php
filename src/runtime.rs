@@ -10,51 +10,54 @@
 //! the worker — never in the master. Do not create a `Client` during module
 //! load / MINIT.
 //!
-//! Stored as `Mutex<Option<Runtime>>` rather than `OnceLock<Runtime>` so the
-//! PHP module-shutdown hook (`shutdown()` here, wired in `lib.rs`) can `take`
-//! the runtime and drop it. Under module-unload SAPIs (mod_php, ZTS Apache)
-//! the I/O threads would otherwise outlive `MSHUTDOWN` and leak.
+//! Stored as `Mutex<Option<Arc<Runtime>>>` so the PHP module-shutdown hook
+//! (`shutdown()` here, wired in `lib.rs`) can `take` the cell and drop the
+//! runtime. Under module-unload SAPIs (mod_php, ZTS Apache) the I/O threads
+//! would otherwise outlive `MSHUTDOWN` and leak. Wrapping in `Arc` lets each
+//! `block_on` call grab an owned reference, drop the mutex, and then call
+//! `Runtime::block_on` outside the lock — using the runtime API directly
+//! rather than `Handle::block_on`, which empirically does not drive wreq's
+//! first request reliably from a freshly built runtime.
 
 use std::future::Future;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
 
-static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
+static RUNTIME: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
 
-/// Returns a `Handle` to the shared runtime, building it on first use.
-///
-/// The mutex is only held long enough to clone the cheap `Handle`; the actual
-/// `block_on` runs outside the lock so requests do not serialize.
-fn handle() -> Handle {
+/// Returns an owned reference to the shared runtime, building it on first use.
+fn current() -> Arc<Runtime> {
     let mut guard = RUNTIME.lock().expect("wreq-php runtime mutex poisoned");
     if guard.is_none() {
-        *guard = Some(build());
+        *guard = Some(Arc::new(build()));
     }
-    guard
-        .as_ref()
-        .expect("runtime was just initialized")
-        .handle()
-        .clone()
+    Arc::clone(guard.as_ref().expect("runtime was just initialized"))
 }
 
 /// Drives the future to completion on the shared runtime, blocking the
 /// calling PHP thread.
 pub fn block_on<F: Future>(future: F) -> F::Output {
-    handle().block_on(future)
+    current().block_on(future)
 }
 
 /// Module-shutdown hook: drops the runtime so its I/O threads terminate
 /// before the SAPI tears down. A bounded shutdown timeout keeps a hung
-/// connection from hanging PHP at module-unload time.
+/// connection from hanging PHP at module-unload time. If a `block_on` is
+/// still in flight when this runs, its `Arc` keeps the `Runtime` alive long
+/// enough to finish — we only release the static slot.
 pub fn shutdown() {
-    if let Some(rt) = RUNTIME
+    let arc = RUNTIME
         .lock()
         .expect("wreq-php runtime mutex poisoned")
-        .take()
-    {
-        rt.shutdown_timeout(Duration::from_secs(1));
+        .take();
+    if let Some(arc) = arc {
+        if let Ok(rt) = Arc::try_unwrap(arc) {
+            rt.shutdown_timeout(Duration::from_secs(1));
+        }
+        // If another thread still holds an Arc, Runtime drops itself when
+        // that last reference goes away — close enough at module unload.
     }
 }
 

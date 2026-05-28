@@ -71,16 +71,53 @@ final class IntegrationTest extends TestCase
         Emulation::random('not_a_browser');
     }
 
-    public function test_connection_pool_is_reused_within_a_client(): void
+    public function test_connection_pool_reuses_one_tcp_socket_within_a_client(): void
     {
-        $client = new Client(['timeout' => 30.0]);
+        // The previous version compared `remoteAddr()` between two responses,
+        // which is the *server* address — identical for any two requests to
+        // the same host whether the socket was reused or not. Prove reuse by
+        // counting accept() calls server-side: with keep-alive the pool must
+        // hand the same socket back for the second request.
+        $logPath = tempnam(sys_get_temp_dir(), 'wreq_accepts_');
+        if ($logPath === false) {
+            $this->markTestSkipped('cannot create temp file');
+        }
 
-        // Two requests to the same host should reuse one keep-alive socket,
-        // so the remote peer address is identical.
-        $first = $client->get($this->httpbin.'/get');
-        $second = $client->get($this->httpbin.'/get');
+        $script = __DIR__.'/fixtures/keepalive_server.php';
+        $proc = proc_open(
+            [PHP_BINARY, $script, $logPath],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+        );
+        if (! is_resource($proc)) {
+            @unlink($logPath);
+            $this->markTestSkipped('proc_open is not available');
+        }
 
-        $this->assertSame($first->remoteAddr(), $second->remoteAddr());
+        try {
+            $port = (int) trim((string) fgets($pipes[1]));
+            $this->assertGreaterThan(0, $port, 'fixture server failed to report a port');
+
+            $client = new Client(['timeout' => 5.0]);
+            $client->get("http://127.0.0.1:{$port}/");
+            $client->get("http://127.0.0.1:{$port}/");
+            $client->close();
+
+            // Give the fixture a tick to flush its accept counter.
+            usleep(100_000);
+
+            $accepts = (int) file_get_contents($logPath);
+            $this->assertSame(1, $accepts, "expected 1 TCP accept, got {$accepts}");
+        } finally {
+            @proc_terminate($proc);
+            foreach ($pipes as $pipe) {
+                if (is_resource($pipe)) {
+                    @fclose($pipe);
+                }
+            }
+            @proc_close($proc);
+            @unlink($logPath);
+        }
     }
 
     public function test_close_releases_the_client(): void
