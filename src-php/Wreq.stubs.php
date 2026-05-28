@@ -104,11 +104,24 @@ namespace Wreq\Ext {
         public static function exists(string $name): bool {}
 
         /**
-         * A random profile name.
+         * All profile names that belong to a given browser family, in the order
+         * `wreq-util` declares them. Returns an empty list for an unknown family.
          *
+         * @param string $family
+         * @return array
+         */
+        public static function like(string $family): array {}
+
+        /**
+         * Picks a random profile, optionally restricted to a browser family
+         * (`chrome`, `firefox`, `safari`, `opera`, `edge`, `okhttp`, …). Throws
+         * when the family has no profiles, so a typo is loud instead of silently
+         * returning the same value as `random()`.
+         *
+         * @param string|null $family
          * @return string
          */
-        public static function random(): string {}
+        public static function random(?string $family = null): string {}
     }
 
     /**
