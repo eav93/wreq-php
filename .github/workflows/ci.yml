@@ -30,7 +30,7 @@ on:
     paths-ignore: ['**.md', 'LICENSE', '.gitignore']
 
 permissions:
-  contents: read
+  contents: write
 
 # Cancel superseded PR runs to save runners; keep main runs serial so every
 # pushed commit gets validated.
@@ -74,9 +74,11 @@ jobs:
         run: cargo test --no-fail-fast
 
       # IDE stubs are committed at src-php/Wreq.stubs.php and shipped via
-      # Composer. Regenerate from the registered classes and fail if the
-      # committed copy is out of date — keeps PhpStorm autocomplete in sync
-      # with the Rust source without anyone having to remember.
+      # Composer. CI regenerates them from the registered Rust classes and:
+      #   - on a push to main, commits a refresh back automatically with
+      #     `[skip ci]` so the follow-up push does not loop;
+      #   - on a PR, fails the run — fork PRs cannot push back, and a stale
+      #     stub in a PR should be made visible to the author.
       - name: Cache cargo-php binary
         id: cache-cargo-php
         uses: actions/cache@v4
@@ -91,7 +93,21 @@ jobs:
       - name: Regenerate IDE stubs
         run: cargo php stubs --manifest Cargo.toml --out src-php/Wreq.stubs.php
 
-      - name: Check stubs are committed
+      - name: Auto-commit stub refresh on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if git diff --quiet -- src-php/Wreq.stubs.php; then
+            echo "Stubs are up to date."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src-php/Wreq.stubs.php
+          git commit -m 'chore: regenerate IDE stubs [skip ci]'
+          git push
+
+      - name: Fail PR if stubs are stale
+        if: github.event_name == 'pull_request'
         run: |
           if ! git diff --exit-code -- src-php/Wreq.stubs.php; then
             echo "::error::src-php/Wreq.stubs.php is out of date."
