@@ -387,9 +387,15 @@ final class PendingRequest
             return $url;
         }
 
-        $separator = str_contains($url, '?') ? '&' : '?';
+        // Query must go before the fragment: `path?query#frag`, never
+        // `path#frag?query`. Split on the first `#` and decide the separator
+        // from the part before it (a `?` inside the fragment does not count).
+        $hash = strpos($url, '#');
+        $base = $hash === false ? $url : substr($url, 0, $hash);
+        $fragment = $hash === false ? '' : substr($url, $hash);
+        $separator = str_contains($base, '?') ? '&' : '?';
 
-        return $url.$separator.http_build_query($this->query);
+        return $base.$separator.http_build_query($this->query).$fragment;
     }
 
     /**

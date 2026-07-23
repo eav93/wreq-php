@@ -86,10 +86,12 @@ namespace Wreq\Ext {
          * @param string $url
          * @param array|null $headers
          * @param mixed $body
-         * @param string $path
+         * @param string|null $path Required at runtime; nullable in the
+         *   signature only to avoid a required-after-optional parameter, which
+         *   PHP 8.5 deprecates.
          * @return \Wreq\Ext\Response
          */
-        public function requestToFile(string $method, string $url, ?array $headers = null, mixed $body = null, string $path): \Wreq\Ext\Response {}
+        public function requestToFile(string $method, string $url, ?array $headers = null, mixed $body = null, ?string $path = null): \Wreq\Ext\Response {}
     }
 
     /**

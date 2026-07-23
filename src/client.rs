@@ -84,14 +84,19 @@ impl Client {
     /// of how big the response is. The returned `Response` carries status and
     /// headers but an empty body; `downloaded_bytes()` reports how much was
     /// written.
+    // `path` is `Option` (with a runtime check) so it is not a *required*
+    // parameter after the optional `headers`/`body` — that shape is deprecated
+    // in PHP 8.5 and would emit warnings at registration.
     pub fn request_to_file(
         &self,
         method: &str,
         url: &str,
         headers: Option<&ZendHashTable>,
         body: Option<&Zval>,
-        path: &str,
+        path: Option<&str>,
     ) -> PhpResult<Response> {
+        let path = path
+            .ok_or_else(|| PhpException::default("request_to_file: 'path' is required".into()))?;
         let builder = apply_body(self.request_builder(method, url, headers)?, body)?;
         self.execute_to_file(builder, path)
     }
@@ -478,24 +483,26 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
 
     // ---- timeouts ----
+    // Validate first (rejects NaN/±inf/negative via `checked_duration`), then
+    // treat exactly 0 as "no timeout" and skip the builder call. The previous
+    // `if secs > 0.0` guard swallowed -1/NaN silently, leaving the request with
+    // no timeout at all.
     if let Some(secs) = opt_f64(opts, "timeout") {
-        if secs > 0.0 {
-            builder =
-                builder.timeout(checked_duration("timeout", secs).map_err(PhpException::default)?);
+        let d = checked_duration("timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.timeout(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "read_timeout") {
-        if secs > 0.0 {
-            builder = builder.read_timeout(
-                checked_duration("read_timeout", secs).map_err(PhpException::default)?,
-            );
+        let d = checked_duration("read_timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.read_timeout(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "connect_timeout") {
-        if secs > 0.0 {
-            builder = builder.connect_timeout(
-                checked_duration("connect_timeout", secs).map_err(PhpException::default)?,
-            );
+        let d = checked_duration("connect_timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.connect_timeout(d);
         }
     }
 

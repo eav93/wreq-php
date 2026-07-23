@@ -62,15 +62,18 @@ final class Emulation
     }
 
     /**
-     * Every profile name starting with the given prefix (e.g. `chrome`).
+     * Every profile name starting with the given prefix (e.g. `chrome`),
+     * matched case-insensitively to mirror the native API.
      *
      * @return array<int, string>
      */
     public static function like(string $prefix): array
     {
+        $prefix = strtolower($prefix);
+
         return array_values(array_filter(
             self::all(),
-            static fn (string $name): bool => str_starts_with($name, $prefix),
+            static fn (string $name): bool => str_starts_with(strtolower($name), $prefix),
         ));
     }
 
