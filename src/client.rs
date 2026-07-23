@@ -416,11 +416,17 @@ fn build_multipart(
                 .array()
                 .ok_or_else(|| PhpException::default("each attachment must be an array".into()))?;
 
-            let name = file
-                .get("name")
-                .and_then(|zv| zv.str())
-                .ok_or_else(|| PhpException::default("attachment is missing 'name'".into()))?
-                .to_string();
+            // Distinguish a missing/null key from a present-but-non-string one
+            // (a non-UTF8 string is present, not "missing").
+            let name = match file.get("name").filter(|zv| !zv.is_null()) {
+                None => return Err(PhpException::default("attachment is missing 'name'".into())),
+                Some(zv) => zv
+                    .str()
+                    .ok_or_else(|| {
+                        PhpException::default("attachment 'name' must be a UTF-8 string".into())
+                    })?
+                    .to_string(),
+            };
 
             // Raw bytes — read via the zend_string so binary file content
             // survives (a PHP string is not necessarily valid UTF-8).
@@ -439,10 +445,23 @@ fn build_multipart(
                 .to_vec();
 
             let mut part = wreq::multipart::Part::bytes(contents);
-            if let Some(filename) = file.get("filename").and_then(|zv| zv.str()) {
+            // Optional, but a present value of the wrong type must not be
+            // silently dropped (a non-UTF8 latin1 filename would otherwise
+            // vanish). A missing/null key leaves the field unset.
+            if let Some(fzv) = file.get("filename").filter(|zv| !zv.is_null()) {
+                let filename = fzv.str().ok_or_else(|| {
+                    PhpException::default(format!(
+                        "attachment '{name}' 'filename' must be a string"
+                    ))
+                })?;
                 part = part.file_name(filename.to_string());
             }
-            if let Some(mime) = file.get("content_type").and_then(|zv| zv.str()) {
+            if let Some(czv) = file.get("content_type").filter(|zv| !zv.is_null()) {
+                let mime = czv.str().ok_or_else(|| {
+                    PhpException::default(format!(
+                        "attachment '{name}' 'content_type' must be a string"
+                    ))
+                })?;
                 part = part
                     .mime_str(mime)
                     .map_err(|e| PhpException::default(format!("invalid content_type: {e}")))?;
@@ -506,7 +525,14 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
             let profile = inner.get("profile").and_then(|z| z.str()).ok_or_else(|| {
                 PhpException::default("emulation['profile'] must be a string".into())
             })?;
-            let os = inner.get("os").and_then(|z| z.str());
+            // A present-but-wrong-type nested `os` must error, not silently
+            // fall back to the top-level `emulation_os` (mirrors `profile`).
+            let os = match inner.get("os").filter(|z| !z.is_null()) {
+                Some(z) => Some(z.str().ok_or_else(|| {
+                    PhpException::default("emulation['os'] must be a string".into())
+                })?),
+                None => None,
+            };
             (profile, os)
         } else if let Some(name) = zv.str() {
             (name, None)
@@ -535,7 +561,10 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     if let Some(ua) = opt_str(opts, "user_agent")? {
         builder = builder.user_agent(ua);
     }
-    if let Some(table) = opts.get("headers").and_then(|zv| zv.array()) {
+    if let Some(zv) = opt_present(opts, "headers") {
+        let table = zv
+            .array()
+            .ok_or_else(|| opt_type_error("headers", "an array (name => value)"))?;
         builder = builder.default_headers(headers_from_table(table).map_err(PhpException::from)?);
     }
 
@@ -700,7 +729,10 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     if opt_bool(opts, "no_hickory_dns")?.unwrap_or(false) {
         builder = builder.no_hickory_dns();
     }
-    if let Some(table) = opts.get("resolve").and_then(|zv| zv.array()) {
+    if let Some(zv) = opt_present(opts, "resolve") {
+        let table = zv
+            .array()
+            .ok_or_else(|| opt_type_error("resolve", "an array (host => \"ip:port\")"))?;
         for (host, value) in table.iter() {
             let host = host.to_string();
             let target = value.str().ok_or_else(|| {

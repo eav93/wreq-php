@@ -205,13 +205,24 @@ final class PendingRequest
 
     /**
      * Sends a raw, pre-encoded body.
+     *
+     * Pass `$contentType` to set the header explicitly; leave it `null` to
+     * default to `application/json` *only if no Content-Type is already set*.
+     * This way `withHeader('Content-Type', 'text/xml')->withBody($xml)` keeps
+     * the XML type instead of having it clobbered by the default.
      */
-    public function withBody(string $content, string $contentType = 'application/json'): self
+    public function withBody(string $content, ?string $contentType = null): self
     {
         $clone = clone $this;
         $clone->rawBody = $content;
 
-        return $clone->withHeader('Content-Type', $contentType);
+        if ($contentType !== null) {
+            return $clone->withHeader('Content-Type', $contentType);
+        }
+
+        $clone->headers = self::defaultHeader($clone->headers, 'Content-Type', 'application/json');
+
+        return $clone;
     }
 
     /**
@@ -335,6 +346,13 @@ final class PendingRequest
     private function dispatch(string $method, string $url, array|string|null $data): Response
     {
         $finalUrl = $this->buildUrl($url);
+
+        // Attachments only make sense in multipart mode. If a later asJson()/
+        // asForm() switched the format away, reject instead of silently
+        // dropping them (mirrors the multipart-side guards below).
+        if ($this->attachments !== [] && $this->bodyFormat !== 'multipart') {
+            throw new \InvalidArgumentException('attach() requires multipart mode; do not follow it with asJson()/asForm()');
+        }
 
         // multipart/form-data: text fields + attached files; wreq sets the
         // Content-Type (with boundary) itself.

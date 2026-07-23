@@ -53,6 +53,14 @@ final class ResponseTest extends TestCase
         $this->assertSame('fallback', $response->json('missing.key', 'fallback'));
     }
 
+    public function test_json_and_object_return_null_on_empty_body(): void
+    {
+        $response = new Response(new FakeRawResponse(status: 204, body: ''));
+
+        $this->assertNull($response->json());
+        $this->assertNull($response->object());
+    }
+
     public function test_resource_streams_the_body(): void
     {
         $response = new Response(new FakeRawResponse(body: 'streamed'));

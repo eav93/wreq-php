@@ -72,7 +72,9 @@ final class Response
      * With a `$key` in dot notation a nested value is returned, falling back to
      * `$default` when the path is missing.
      *
-     * A malformed body raises `\JsonException` — distinct from a literal JSON
+     * An empty body (e.g. a 204 or an empty 200) decodes to `null` rather than
+     * raising — matching the common "no content" convention. A non-empty but
+     * malformed body raises `\JsonException` — distinct from a literal JSON
      * `null` (returned as `null`) and from a missing key (returns `$default`).
      *
      *
@@ -81,7 +83,8 @@ final class Response
     public function json(?string $key = null, mixed $default = null): mixed
     {
         if (! $this->jsonDecoded) {
-            $this->jsonValue = json_decode($this->body(), true, 512, JSON_THROW_ON_ERROR);
+            $body = $this->body();
+            $this->jsonValue = $body === '' ? null : json_decode($body, true, 512, JSON_THROW_ON_ERROR);
             $this->jsonDecoded = true;
         }
 
@@ -93,14 +96,16 @@ final class Response
     }
 
     /**
-     * Decoded JSON body as a `stdClass` object graph.
+     * Decoded JSON body as a `stdClass` object graph. An empty body decodes to
+     * `null`; a non-empty malformed body raises `\JsonException`.
      *
      * @throws \JsonException on a malformed body.
      */
     public function object(): mixed
     {
         if (! $this->objectDecoded) {
-            $this->objectValue = json_decode($this->body(), false, 512, JSON_THROW_ON_ERROR);
+            $body = $this->body();
+            $this->objectValue = $body === '' ? null : json_decode($body, false, 512, JSON_THROW_ON_ERROR);
             $this->objectDecoded = true;
         }
 

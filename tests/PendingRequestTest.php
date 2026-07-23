@@ -143,6 +143,39 @@ final class PendingRequestTest extends TestCase
         $this->assertSame('application/xml', $ext->lastRequest['headers']['Content-Type']);
     }
 
+    public function test_with_body_keeps_a_previously_set_content_type(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->withHeader('Content-Type', 'text/xml')
+            ->withBody('<xml/>')
+            ->post('https://api.test/feed');
+
+        // withBody() without an explicit type must not clobber the header.
+        $this->assertSame('text/xml', $ext->lastRequest['headers']['Content-Type']);
+    }
+
+    public function test_with_body_defaults_to_json_when_unset(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))
+            ->withBody('{"a":1}')
+            ->post('https://api.test/feed');
+
+        $this->assertSame('application/json', $ext->lastRequest['headers']['Content-Type']);
+    }
+
+    public function test_attach_then_asjson_is_rejected(): void
+    {
+        $ext = new FakeExtClient;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest($ext))
+            ->attach('f', 'BYTES')
+            ->asJson()
+            ->post('https://api.test/upload', ['a' => 1]);
+    }
+
     public function test_attach_builds_a_multipart_request(): void
     {
         $ext = new FakeExtClient;
