@@ -1,27 +1,28 @@
 name: Auto release
 
-# Every commit to `main` cuts a new release: a `v*` tag is created and the
-# binary release workflow runs for it.
+# Cuts a release only *after* CI succeeds on `main`: a `v*` tag is created and
+# the binary release workflow runs for it. Gating on CI (via `workflow_run`)
+# means a commit that fails lint/tests/stub-validation never gets a tag.
 #
 # Version bump (from the latest tag):
 #   * default          — patch:  v0.1.3 -> v0.1.4
 #   * `[minor]` in msg — minor:  v0.1.3 -> v0.2.0
 #   * `[major]` in msg — major:  v0.1.3 -> v1.0.0
 #
-# Skip a commit entirely with `[skip release]`; documentation-only commits are
-# ignored via paths-ignore.
+# Skip a commit entirely with `[skip release]`. Documentation-only commits do
+# not reach here at all, because CI itself is `paths-ignore`d for **.md.
 #
 # The tag is pushed with GITHUB_TOKEN, which by design does not trigger the
 # `push: tags` workflow — so the release workflow is invoked directly here as
 # a reusable workflow instead.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - '.gitignore'
+  # Fires when the CI workflow completes; the `version` job then checks it
+  # succeeded on main before tagging. `workflow_dispatch` allows a manual
+  # release that bypasses the CI gate.
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -33,22 +34,35 @@ concurrency:
 
 jobs:
   version:
-    name: Bump minor version
+    name: Tag next version
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    # Manual dispatch always runs; the automatic path requires CI to have
+    # succeeded on the main branch.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
     steps:
+      # Check out the exact commit CI validated (workflow_run does not do this
+      # by default — it would otherwise use the default branch head). head_sha
+      # is a commit SHA, not attacker-controllable free text.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Compute and push next tag
         id: bump
         run: |
-          latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
           message=$(git log -1 --pretty=%B)
+          if printf '%s' "$message" | grep -qF '[skip release]'; then
+            echo "Commit requested [skip release] — no tag."
+            exit 0
+          fi
 
+          latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
           if [ -z "$latest" ]; then
             next="v0.1.0"
           else
@@ -71,6 +85,8 @@ jobs:
 
   release:
     needs: version
+    # Skipped commits produce no tag — do not run an empty release.
+    if: ${{ needs.version.outputs.tag != '' }}
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.version.outputs.tag }}

@@ -73,47 +73,26 @@ jobs:
       - name: cargo test
         run: cargo test --no-fail-fast
 
-      # IDE stubs are committed at src-php/Wreq.stubs.php and shipped via
-      # Composer. CI regenerates them from the registered Rust classes and:
-      #   - on a push to main, commits a refresh back automatically with
-      #     `[skip ci]` so the follow-up push does not loop;
-      #   - on a PR, fails the run — fork PRs cannot push back, and a stale
-      #     stub in a PR should be made visible to the author.
-      - name: Cache cargo-php binary
-        id: cache-cargo-php
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-php
-          key: cargo-php-${{ runner.os }}-v0.1.21
-
-      - name: Install cargo-php
-        if: steps.cache-cargo-php.outputs.cache-hit != 'true'
-        run: cargo install cargo-php --locked --version 0.1.21
-
-      - name: Regenerate IDE stubs
-        run: cargo php stubs --manifest Cargo.toml --out src-php/Wreq.stubs.php
-
-      - name: Auto-commit stub refresh on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # IDE stubs at src-php/Wreq.stubs.php are hand-maintained and shipped via
+      # Composer. CI does not regenerate them — it only validates the committed
+      # file (valid PHP + declares every registered class).
+      #
+      # We dropped the `cargo php stubs` step: it dlopen()s the built extension
+      # to introspect its classes, but on Linux the PHP symbols (e.g.
+      # `zend_hash_find`) are absent from the cargo-php process, so the load
+      # fails with `undefined symbol`. It only works where the linker resolves
+      # undefined symbols lazily (macOS). Since the stubs are small and edited
+      # by hand anyway, validating them here is enough. (To regenerate from
+      # scratch on macOS: `cargo php stubs --manifest Cargo.toml --out
+      # src-php/Wreq.stubs.php`.)
+      - name: Validate committed IDE stubs
         run: |
-          if git diff --quiet -- src-php/Wreq.stubs.php; then
-            echo "Stubs are up to date."
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src-php/Wreq.stubs.php
-          git commit -m 'chore: regenerate IDE stubs [skip ci]'
-          git push
-
-      - name: Fail PR if stubs are stale
-        if: github.event_name == 'pull_request'
-        run: |
-          if ! git diff --exit-code -- src-php/Wreq.stubs.php; then
-            echo "::error::src-php/Wreq.stubs.php is out of date."
-            echo "Run: cargo php stubs --manifest Cargo.toml --out src-php/Wreq.stubs.php"
-            exit 1
-          fi
+          php -l src-php/Wreq.stubs.php
+          for class in Client Response Emulation WreqException ConnectionException \
+                       TimeoutException TlsException RedirectException ForkException; do
+            grep -q "class $class" src-php/Wreq.stubs.php \
+              || { echo "::error::src-php/Wreq.stubs.php is missing class $class"; exit 1; }
+          done
 
   php-unit:
     name: PHP unit (php ${{ matrix.php }})
