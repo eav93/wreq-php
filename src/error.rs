@@ -75,6 +75,20 @@ pub struct RedirectException;
 #[php_impl]
 impl RedirectException {}
 
+/// A client using the Hickory DNS resolver was inherited across `fork(2)` and
+/// used in the child. Hickory keeps a process-global resolver bound to the
+/// parent's Tokio runtime, which does not survive `fork` — every lookup would
+/// hang until the connect timeout. Set `no_hickory_dns => true` (system DNS is
+/// fork-safe) or build the client after forking. See [`crate::client`].
+#[php_class]
+#[php(name = "Wreq\\Ext\\ForkException")]
+#[php(extends(ce = wreq_exception_ce, stub = "\\Wreq\\Ext\\WreqException"))]
+#[derive(Default)]
+pub struct ForkException;
+
+#[php_impl]
+impl ForkException {}
+
 /// Every exception class, in registration order (parent first).
 pub fn exception_classes(module: ModuleBuilder) -> ModuleBuilder {
     module
@@ -83,6 +97,7 @@ pub fn exception_classes(module: ModuleBuilder) -> ModuleBuilder {
         .class::<TimeoutException>()
         .class::<TlsException>()
         .class::<RedirectException>()
+        .class::<ForkException>()
 }
 
 // ---------- internal error ----------

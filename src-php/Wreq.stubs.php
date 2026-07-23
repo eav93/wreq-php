@@ -149,6 +149,17 @@ namespace Wreq\Ext {
     }
 
     /**
+     * A client using the Hickory DNS resolver was inherited across `fork(2)`
+     * and used in the child. Hickory keeps a process-global resolver bound to
+     * the parent's Tokio runtime, which does not survive `fork` — every lookup
+     * would hang. Set `no_hickory_dns => true` (system DNS is fork-safe) or
+     * build the client after forking.
+     */
+    class ForkException extends \Wreq\Ext\WreqException {
+        public function __construct() {}
+    }
+
+    /**
      * HTTP response returned by `Client::request()`.
      */
     class Response {

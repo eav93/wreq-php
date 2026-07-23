@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-ext-php-rs = { version = "0.15.14", features = ["anyhow", "indexmap"] }
+ext-php-rs = { version = "0.15.15", features = ["anyhow", "indexmap"] }
 bytes = "1"
 wreq = { version = "6.0.0-rc.29", features = [
     "cookies",
@@ -43,15 +43,10 @@ indexmap = "2"
 strum = { version = "0.27.2", default-features = false }
 
 [build-dependencies]
-ext-php-rs = { version = "0.15.14", features = ["anyhow"] }
+ext-php-rs = { version = "0.15.15", features = ["anyhow"] }
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-
-# Proxy::resolve_local — local DNS for HTTP CONNECT (upstream PR pending).
-# The `resolve-local` branch tracks the latest upstream main + the feature.
-[patch.crates-io]
-wreq = { git = "https://github.com/eav93/wreq.git", branch = "resolve-local" }
