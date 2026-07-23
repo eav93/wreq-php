@@ -161,7 +161,7 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 | `interface` | string | Bind to a network interface (Unix only). |
 | `proxy` | string | Proxy URL for all requests (`http://`, `https://`, `socks4://`, `socks4a://`, `socks5://`, `socks5h://`). |
 | `no_proxy` | bool | Ignore proxies, including system ones. |
-| `no_hickory_dns` | bool | Use the system DNS resolver. |
+| `no_hickory_dns` | bool | Use the system DNS resolver (getaddrinfo) instead of Hickory. Required when the client is used across `pcntl_fork()` — see [Fork safety](#fork-safety). |
 | `resolve` | array | DNS overrides, `host => "ip:port"`. |
 | `verify` | bool | Verify TLS certificate and hostname (default `true`). |
 | `tls_sni` / `tls_info` | bool | TLS SNI / expose TLS info. |
@@ -170,6 +170,27 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 Settings that need Rust objects (client certificates, custom cert/DNS stores,
 HTTP/2 frame tuning, tower layers) are not exposed — use the `wreq` crate
 directly for those.
+
+### Fork safety
+
+The default DNS resolver (Hickory) keeps a **process-global** resolver bound to
+the Tokio runtime that first built it. That runtime does not survive `fork(2)`,
+so if a parent issues a request through a Hickory-backed client and then
+`pcntl_fork()`s, any DNS lookup in the child would hang until the connect
+timeout. Because the resolver is global, building a fresh client in the child
+does not help — it inherits the same dead resolver.
+
+To catch this early, a Hickory client used in a forked child raises
+`Wreq\Ext\ForkException` instead of hanging. The fix is to opt into the
+fork-safe system resolver:
+
+```php
+$client = new Wreq\Ext\Client(['no_hickory_dns' => true]);
+```
+
+With `no_hickory_dns`, resolution goes through `getaddrinfo` on the current
+runtime and is safe across `fork()`. Set it whenever the client runs in a
+worker spawned with `pcntl_fork()` (e.g. a multi-process crawler).
 
 ### Emulation profiles
 
