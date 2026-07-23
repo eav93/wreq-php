@@ -37,11 +37,15 @@ jobs:
     name: Tag next version
     runs-on: ubuntu-latest
     # Manual dispatch always runs; the automatic path requires CI to have
-    # succeeded on the main branch.
+    # succeeded on a *push* to main *of this repository*. Without the last two
+    # checks a fork PR whose branch is named "main" could satisfy head_branch
+    # and get its untrusted commit tagged/released with contents: write.
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
     steps:

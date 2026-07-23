@@ -50,7 +50,11 @@ final class Client
     {
         Extension::ensure();
 
-        $this->baseUrl = (string) ($options['base_url'] ?? '');
+        $baseUrl = $options['base_url'] ?? '';
+        if (! is_string($baseUrl)) {
+            throw new \InvalidArgumentException("client option 'base_url' must be a string");
+        }
+        $this->baseUrl = $baseUrl;
         $this->ext = new Ext\Client($options);
     }
 

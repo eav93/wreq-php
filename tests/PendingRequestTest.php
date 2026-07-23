@@ -176,6 +176,14 @@ final class PendingRequestTest extends TestCase
             ->post('https://api.test/upload', ['a' => 1]);
     }
 
+    public function test_attach_rejects_non_string_contents(): void
+    {
+        $ext = new FakeExtClient;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest($ext))->attach('f', ['not', 'a', 'string']);
+    }
+
     public function test_attach_builds_a_multipart_request(): void
     {
         $ext = new FakeExtClient;

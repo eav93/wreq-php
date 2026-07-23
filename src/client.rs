@@ -239,23 +239,36 @@ impl Client {
     /// Sends the request and streams the body to `path` chunk by chunk, so peak
     /// memory stays flat no matter how large the response is.
     ///
-    /// The body is written to a sibling `<path>.part` file and atomically
-    /// renamed onto `path` only after a clean flush — a network/disk error (or
-    /// exceeding `max_download_bytes`) removes the partial file and leaves any
-    /// existing `path` untouched, so callers never see a truncated download.
+    /// The body is written to a unique sibling `<path>.<pid>.<seq>.part` file
+    /// and atomically renamed onto `path` only after a clean flush — a
+    /// network/disk error (or exceeding `max_download_bytes`) removes the
+    /// partial file and leaves any existing `path` untouched, so callers never
+    /// see a truncated download. The temp name is unique and opened with
+    /// `create_new` (O_EXCL) so concurrent downloads to the same path don't
+    /// clobber each other and a pre-planted symlink can't be followed.
     fn execute_to_file(&self, builder: wreq::RequestBuilder, path: &str) -> PhpResult<Response> {
         use futures_util::StreamExt;
         use std::io::Write;
+        use std::sync::atomic::AtomicU64;
+
+        static DOWNLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
 
         let max = self.max_download_bytes;
         runtime::block_on(async move {
             let resp = builder.send().await.map_err(map_wreq_error)?;
             let meta = ResponseMeta::extract(&resp);
 
-            let tmp = format!("{path}.part");
-            let file = std::fs::File::create(&tmp).map_err(|e| {
-                PhpException::default(format!("failed to open download sink '{tmp}': {e}"))
-            })?;
+            let seq = DOWNLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
+            let tmp = format!("{path}.{}.{}.part", std::process::id(), seq);
+            // create_new = O_CREAT|O_EXCL: fails if the path exists (incl. a
+            // dangling symlink), so we never overwrite or follow a plant.
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp)
+                .map_err(|e| {
+                    PhpException::default(format!("failed to open download sink '{tmp}': {e}"))
+                })?;
             // Buffer the writes: chunks arrive in network-sized pieces, and
             // batching them into larger syscalls keeps large downloads fast.
             let mut writer = std::io::BufWriter::new(file);
@@ -852,6 +865,14 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
             "options 'proxy' and 'no_proxy' are mutually exclusive".into(),
         ));
     }
+
+    // Emulation modifiers only take effect when `emulation` is set (they are
+    // read inside that branch of build_wreq_client). Type-check them here so a
+    // wrong type is rejected even without `emulation`, rather than silently
+    // ignored — the `?` propagates opt_*'s type error.
+    opt_str(opts, "emulation_os")?;
+    opt_bool(opts, "skip_http2")?;
+    opt_bool(opts, "skip_headers")?;
 
     // Platform-specific options: known everywhere (so they are not flagged as
     // typos), but the builder call is `#[cfg]`-gated. On an unsupported OS they

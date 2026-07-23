@@ -188,7 +188,11 @@ final class PendingRequest
             $contents = $read;
         }
 
-        $part = ['name' => $name, 'contents' => (string) $contents];
+        if (! is_string($contents)) {
+            throw new \InvalidArgumentException("attach(): \$contents for \"$name\" must be a string or stream resource");
+        }
+
+        $part = ['name' => $name, 'contents' => $contents];
         if ($filename !== null) {
             $part['filename'] = $filename;
         }
