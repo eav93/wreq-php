@@ -2715,7 +2715,7 @@ dependencies = [
 [[package]]
 name = "wreq"
 version = "6.0.0-rc.28"
-source = "git+https://github.com/eav93/wreq.git?branch=resolve-local#6f5fe101e862a1cd9401a84568dd9aa40bc92a3d"
+source = "git+https://github.com/eav93/wreq.git?branch=resolve-local#22b5f3fcabc0c7152ea4ed4de53edd1eb82e3e8f"
 dependencies = [
  "ahash",
  "boring2",
