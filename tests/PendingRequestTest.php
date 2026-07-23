@@ -19,6 +19,23 @@ final class PendingRequestTest extends TestCase
         $this->assertNull($ext->lastRequest['body']);
     }
 
+    public function test_query_is_inserted_before_url_fragment(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))->get('https://api.test/p#section', ['page' => 2]);
+
+        // Query goes before the fragment: path?query#frag, not path#frag?query.
+        $this->assertSame('https://api.test/p?page=2#section', $ext->lastRequest['url']);
+    }
+
+    public function test_query_merges_with_existing_before_fragment(): void
+    {
+        $ext = new FakeExtClient;
+        (new PendingRequest($ext))->get('https://api.test/p?a=1#section', ['page' => 2]);
+
+        $this->assertSame('https://api.test/p?a=1&page=2#section', $ext->lastRequest['url']);
+    }
+
     public function test_base_url_is_applied_to_relative_paths(): void
     {
         $ext = new FakeExtClient;

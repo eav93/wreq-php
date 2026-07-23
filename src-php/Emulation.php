@@ -62,14 +62,17 @@ final class Emulation
     }
 
     /**
-     * Every profile name starting with the given prefix (e.g. `chrome`),
-     * matched case-insensitively to mirror the native API.
+     * Every profile name in the given family (e.g. `chrome` → `chrome_*`).
+     *
+     * Mirrors the native `variants_for_family`: the family is trimmed,
+     * lower-cased and suffixed with `_`, so `like('chrome')` matches
+     * `chrome_131` but not a hypothetical `chromium_131`.
      *
      * @return array<int, string>
      */
-    public static function like(string $prefix): array
+    public static function like(string $family): array
     {
-        $prefix = strtolower($prefix);
+        $prefix = strtolower(trim($family)).'_';
 
         return array_values(array_filter(
             self::all(),

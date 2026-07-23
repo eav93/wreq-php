@@ -146,7 +146,7 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 | `pool_max_idle_per_host` | int | Idle keep-alive sockets kept per host. |
 | `pool_max_size` | int | Max total connections in the pool. |
 | `pool_idle_timeout` | float | Idle socket lifetime, seconds. |
-| `timeout` / `read_timeout` / `connect_timeout` | float | Request / body-read / connect timeouts, seconds. |
+| `timeout` / `read_timeout` / `connect_timeout` | float | Request / body-read / connect timeouts, seconds. `0` means no timeout; negative/NaN/infinite values are rejected. |
 | `cookies` | bool | Enable a per-client cookie jar. |
 | `gzip` / `brotli` / `zstd` / `deflate` | bool | Toggle response decompression. |
 | `max_redirects` | int | Redirect limit; `0` disables following. |
@@ -170,6 +170,13 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 Settings that need Rust objects (client certificates, custom cert/DNS stores,
 HTTP/2 frame tuning, tower layers) are not exposed — use the `wreq` crate
 directly for those.
+
+> **Removed option:** `proxy_resolve_local` (present up to v1.3.x) is gone.
+> It resolved the target locally and tunnelled `CONNECT` to the IP, but relied
+> on a patched `wreq`; the extension now tracks upstream `wreq`. Passing it now
+> raises `unknown client option 'proxy_resolve_local'`. If you need local
+> resolution, pre-resolve and pass an explicit `resolve` map, or use the
+> `wreq` crate directly.
 
 ### Fork safety
 

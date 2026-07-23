@@ -162,7 +162,12 @@ impl Client {
             return Ok(());
         }
         let pid = std::process::id();
-        match HICKORY_OWNER.compare_exchange(0, pid, Ordering::SeqCst, Ordering::SeqCst) {
+        // AcqRel on success / Acquire on failure is sufficient here — we only
+        // need the single-location read-modify-write to be atomic; there is no
+        // other shared state to order against. Once set, the owner is never
+        // reset: the Hickory resolver is process-global and never torn down, so
+        // the owning PID stays valid for the life of the process.
+        match HICKORY_OWNER.compare_exchange(0, pid, Ordering::AcqRel, Ordering::Acquire) {
             // First Hickory use in this process — we own the resolver.
             Ok(_) => Ok(()),
             // Same process re-using its own resolver.
