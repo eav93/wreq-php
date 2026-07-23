@@ -174,9 +174,13 @@ directly for those.
 > **Removed option:** `proxy_resolve_local` (present up to v1.3.x) is gone.
 > It resolved the target locally and tunnelled `CONNECT` to the IP, but relied
 > on a patched `wreq`; the extension now tracks upstream `wreq`. Passing it now
-> raises `unknown client option 'proxy_resolve_local'`. If you need local
-> resolution, pre-resolve and pass an explicit `resolve` map, or use the
-> `wreq` crate directly.
+> raises `unknown client option 'proxy_resolve_local'`.
+>
+> If you need the proxy to `CONNECT` by IP (client-side resolution), use a
+> **`socks5://` proxy** — SOCKS5 has always resolved the hostname on the client
+> and passed the target IP to the proxy, whereas `socks5h://` and `http://`
+> proxies resolve remotely. Use
+> `['proxy' => 'socks5://user:pass@host:port']`.
 
 ### Fork safety
 
