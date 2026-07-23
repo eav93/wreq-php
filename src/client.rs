@@ -9,6 +9,7 @@
 //! accumulates state immutably and then calls `request()` here. That keeps this
 //! core minimal and the connection pool untouched by per-request tweaks.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use ext_php_rs::exception::PhpException;
@@ -17,9 +18,17 @@ use ext_php_rs::types::{ZendHashTable, Zval};
 
 use crate::convert::headers_from_table;
 use crate::emulation::EmulationConfig;
-use crate::error::map_wreq_error;
+use crate::error::{map_wreq_error, ForkException};
 use crate::response::Response;
 use crate::runtime;
+
+/// PID of the process that first issued a request through a Hickory-backed
+/// client (0 = none yet). Set lazily on first use — never in module init — so
+/// php-fpm workers (themselves forks of the master) are not misflagged: a
+/// worker becomes the owner when *it* first uses Hickory. A later `fork(2)`
+/// inside that worker changes the PID and trips the fork guard. See the
+/// module-level note in `runtime` and [`Client::fork_guard`].
+static HICKORY_OWNER: AtomicU32 = AtomicU32::new(0);
 
 /// Reusable HTTP client with a dedicated connection pool.
 #[php_class]
@@ -27,6 +36,9 @@ use crate::runtime;
 pub struct Client {
     /// `None` once `close()` has been called.
     inner: Option<wreq::Client>,
+    /// Whether this client resolves via Hickory (i.e. `no_hickory_dns` was not
+    /// set). Hickory is not fork-safe; the system resolver (getaddrinfo) is.
+    uses_hickory: bool,
 }
 
 #[php_impl]
@@ -34,8 +46,16 @@ impl Client {
     /// Builds a client from an options array. See `build_wreq_client` for the
     /// supported keys.
     pub fn __construct(options: Option<&ZendHashTable>) -> PhpResult<Self> {
+        // Hickory is the default resolver; `no_hickory_dns => true` opts into
+        // the fork-safe system resolver. Read it before consuming `options`.
+        let uses_hickory = !options
+            .and_then(|o| opt_bool(o, "no_hickory_dns"))
+            .unwrap_or(false);
         let inner = build_wreq_client(options)?;
-        Ok(Self { inner: Some(inner) })
+        Ok(Self {
+            inner: Some(inner),
+            uses_hickory,
+        })
     }
 
     /// Executes an HTTP request and returns the response with its body read.
@@ -114,6 +134,35 @@ impl Client {
 }
 
 impl Client {
+    /// Rejects use of a Hickory-backed client across `fork(2)`.
+    ///
+    /// Hickory keeps a process-global resolver bound to the Tokio runtime that
+    /// built it; that runtime does not survive `fork`, so a lookup in a forked
+    /// child hangs until the connect timeout. We detect the fork by tagging the
+    /// owning PID lazily on first Hickory use: a PID mismatch means we are in a
+    /// child that inherited a Hickory client, and we raise `ForkException`
+    /// instead of hanging.
+    ///
+    /// Clients with `no_hickory_dns` use the system resolver (getaddrinfo),
+    /// which is fork-safe, so they skip this check entirely.
+    fn fork_guard(&self) -> PhpResult<()> {
+        if !self.uses_hickory {
+            return Ok(());
+        }
+        let pid = std::process::id();
+        match HICKORY_OWNER.compare_exchange(0, pid, Ordering::SeqCst, Ordering::SeqCst) {
+            // First Hickory use in this process — we own the resolver.
+            Ok(_) => Ok(()),
+            // Same process re-using its own resolver.
+            Err(owner) if owner == pid => Ok(()),
+            // Different PID: inherited across fork. Refuse before it hangs.
+            Err(owner) => Err(PhpException::from_class::<ForkException>(format!(
+                "Hickory DNS client used across fork(2): built in PID {owner}, used in PID {pid}. \
+                 Set no_hickory_dns => true (system DNS is fork-safe) or create the client after forking."
+            ))),
+        }
+    }
+
     /// Starts a `RequestBuilder` with the method, URL and per-request headers.
     fn request_builder(
         &self,
@@ -121,6 +170,7 @@ impl Client {
         url: &str,
         headers: Option<&ZendHashTable>,
     ) -> PhpResult<wreq::RequestBuilder> {
+        self.fork_guard()?;
         let client = self.inner.as_ref().ok_or_else(|| {
             PhpException::default("client is closed: its connection pool has been released".into())
         })?;
@@ -343,9 +393,8 @@ fn build_multipart(
 ///   `tcp_recv_buffer_size` (int); `connection_verbose` (bool).
 /// Network: `local_address` (IP string), `interface` (name, Unix only),
 ///   `proxy` (URL string — `http://`, `https://`, `socks4://`, `socks4a://`,
-///   `socks5://`, `socks5h://`), `no_proxy` (bool), `proxy_resolve_local`
-///   (bool — resolve the destination locally and CONNECT to its IP; HTTP(S)
-///   proxies only), `no_hickory_dns` (bool), `resolve` (map host => "ip:port").
+///   `socks5://`, `socks5h://`), `no_proxy` (bool), `no_hickory_dns` (bool),
+///   `resolve` (map host => "ip:port").
 /// TLS: `verify` (bool — cert + hostname), `tls_sni` (bool), `tls_info` (bool),
 ///   `min_tls_version`, `max_tls_version` (string `"1.0"`..`"1.3"`).
 fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client> {
@@ -540,13 +589,8 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.interface(iface.to_string());
     }
     if let Some(url) = opt_str(opts, "proxy") {
-        let mut proxy = wreq::Proxy::all(url)
+        let proxy = wreq::Proxy::all(url)
             .map_err(|e| PhpException::default(format!("invalid proxy '{url}': {e}")))?;
-        // Resolve the destination host locally and tunnel CONNECT to its IP
-        // (HTTP(S) proxies only); SNI and Host keep the original hostname.
-        if opt_bool(opts, "proxy_resolve_local").unwrap_or(false) {
-            proxy = proxy.resolve_local(true);
-        }
         builder = builder.proxy(proxy);
     }
     if opt_bool(opts, "no_proxy").unwrap_or(false) {
@@ -633,7 +677,6 @@ const KNOWN_OPTIONS: &[&str] = &[
     "interface",
     "proxy",
     "no_proxy",
-    "proxy_resolve_local",
     "no_hickory_dns",
     "resolve",
     "verify",
