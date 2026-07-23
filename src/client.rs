@@ -48,9 +48,10 @@ impl Client {
     pub fn __construct(options: Option<&ZendHashTable>) -> PhpResult<Self> {
         // Hickory is the default resolver; `no_hickory_dns => true` opts into
         // the fork-safe system resolver. Read it before consuming `options`.
-        let uses_hickory = !options
-            .and_then(|o| opt_bool(o, "no_hickory_dns"))
-            .unwrap_or(false);
+        let uses_hickory = match options {
+            Some(o) => !opt_bool(o, "no_hickory_dns")?.unwrap_or(false),
+            None => true,
+        };
         let inner = build_wreq_client(options)?;
         Ok(Self {
             inner: Some(inner),
@@ -451,9 +452,12 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
             ));
         };
 
-        let os = nested_os.or_else(|| opt_str(opts, "emulation_os"));
-        let skip_http2 = opt_bool(opts, "skip_http2").unwrap_or(false);
-        let skip_headers = opt_bool(opts, "skip_headers").unwrap_or(false);
+        let os = match nested_os {
+            Some(v) => Some(v),
+            None => opt_str(opts, "emulation_os")?,
+        };
+        let skip_http2 = opt_bool(opts, "skip_http2")?.unwrap_or(false);
+        let skip_headers = opt_bool(opts, "skip_headers")?.unwrap_or(false);
         let config = if os.is_some() || skip_http2 || skip_headers {
             EmulationConfig::detailed(profile, os, skip_http2, skip_headers)
         } else {
@@ -464,7 +468,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
 
     // ---- identity / default headers ----
-    if let Some(ua) = opt_str(opts, "user_agent") {
+    if let Some(ua) = opt_str(opts, "user_agent")? {
         builder = builder.user_agent(ua);
     }
     if let Some(table) = opts.get("headers").and_then(|zv| zv.array()) {
@@ -472,16 +476,16 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
 
     // ---- connection pool ----
-    if let Some(n) = opt_long(opts, "pool_max_idle_per_host") {
+    if let Some(n) = opt_long(opts, "pool_max_idle_per_host")? {
         builder = builder.pool_max_idle_per_host(
             checked_usize("pool_max_idle_per_host", n).map_err(PhpException::default)?,
         );
     }
-    if let Some(n) = opt_long(opts, "pool_max_size") {
+    if let Some(n) = opt_long(opts, "pool_max_size")? {
         builder = builder
             .pool_max_size(checked_usize("pool_max_size", n).map_err(PhpException::default)?);
     }
-    if let Some(secs) = opt_f64(opts, "pool_idle_timeout") {
+    if let Some(secs) = opt_f64(opts, "pool_idle_timeout")? {
         builder = builder.pool_idle_timeout(
             checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?,
         );
@@ -492,19 +496,19 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // treat exactly 0 as "no timeout" and skip the builder call. The previous
     // `if secs > 0.0` guard swallowed -1/NaN silently, leaving the request with
     // no timeout at all.
-    if let Some(secs) = opt_f64(opts, "timeout") {
+    if let Some(secs) = opt_f64(opts, "timeout")? {
         let d = checked_duration("timeout", secs).map_err(PhpException::default)?;
         if !d.is_zero() {
             builder = builder.timeout(d);
         }
     }
-    if let Some(secs) = opt_f64(opts, "read_timeout") {
+    if let Some(secs) = opt_f64(opts, "read_timeout")? {
         let d = checked_duration("read_timeout", secs).map_err(PhpException::default)?;
         if !d.is_zero() {
             builder = builder.read_timeout(d);
         }
     }
-    if let Some(secs) = opt_f64(opts, "connect_timeout") {
+    if let Some(secs) = opt_f64(opts, "connect_timeout")? {
         let d = checked_duration("connect_timeout", secs).map_err(PhpException::default)?;
         if !d.is_zero() {
             builder = builder.connect_timeout(d);
@@ -512,114 +516,114 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
 
     // ---- cookies ----
-    if opt_bool(opts, "cookies").unwrap_or(false) {
+    if opt_bool(opts, "cookies")?.unwrap_or(false) {
         builder = builder.cookie_store(true);
     }
 
     // ---- compression ----
-    if let Some(v) = opt_bool(opts, "gzip") {
+    if let Some(v) = opt_bool(opts, "gzip")? {
         builder = builder.gzip(v);
     }
-    if let Some(v) = opt_bool(opts, "brotli") {
+    if let Some(v) = opt_bool(opts, "brotli")? {
         builder = builder.brotli(v);
     }
-    if let Some(v) = opt_bool(opts, "zstd") {
+    if let Some(v) = opt_bool(opts, "zstd")? {
         builder = builder.zstd(v);
     }
-    if let Some(v) = opt_bool(opts, "deflate") {
+    if let Some(v) = opt_bool(opts, "deflate")? {
         builder = builder.deflate(v);
     }
 
     // ---- redirects ----
-    if let Some(max) = opt_long(opts, "max_redirects") {
+    if let Some(max) = opt_long(opts, "max_redirects")? {
         builder = builder.redirect(if max <= 0 {
             wreq::redirect::Policy::none()
         } else {
             wreq::redirect::Policy::limited(max as usize)
         });
     }
-    if let Some(v) = opt_bool(opts, "referer") {
+    if let Some(v) = opt_bool(opts, "referer")? {
         builder = builder.referer(v);
     }
 
     // ---- HTTP version ----
-    if opt_bool(opts, "http1_only").unwrap_or(false) {
+    if opt_bool(opts, "http1_only")?.unwrap_or(false) {
         builder = builder.http1_only();
     }
-    if opt_bool(opts, "http2_only").unwrap_or(false) {
+    if opt_bool(opts, "http2_only")?.unwrap_or(false) {
         builder = builder.http2_only();
     }
-    if let Some(v) = opt_bool(opts, "https_only") {
+    if let Some(v) = opt_bool(opts, "https_only")? {
         builder = builder.https_only(v);
     }
-    if let Some(v) = opt_bool(opts, "connection_verbose") {
+    if let Some(v) = opt_bool(opts, "connection_verbose")? {
         builder = builder.connection_verbose(v);
     }
 
     // ---- TCP ----
-    if let Some(v) = opt_bool(opts, "tcp_nodelay") {
+    if let Some(v) = opt_bool(opts, "tcp_nodelay")? {
         builder = builder.tcp_nodelay(v);
     }
-    if let Some(v) = opt_bool(opts, "tcp_reuse_address") {
+    if let Some(v) = opt_bool(opts, "tcp_reuse_address")? {
         builder = builder.tcp_reuse_address(v);
     }
-    if let Some(secs) = opt_f64(opts, "tcp_keepalive") {
+    if let Some(secs) = opt_f64(opts, "tcp_keepalive")? {
         builder = builder
             .tcp_keepalive(checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?);
     }
-    if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval") {
+    if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval")? {
         builder = builder.tcp_keepalive_interval(
             checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?,
         );
     }
     // `tcp_user_timeout` is a Linux-family socket option (TCP_USER_TIMEOUT).
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
-    if let Some(secs) = opt_f64(opts, "tcp_user_timeout") {
+    if let Some(secs) = opt_f64(opts, "tcp_user_timeout")? {
         builder = builder.tcp_user_timeout(
             checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?,
         );
     }
-    if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout") {
+    if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout")? {
         builder = builder.tcp_happy_eyeballs_timeout(
             checked_duration("tcp_happy_eyeballs_timeout", secs).map_err(PhpException::default)?,
         );
     }
-    if let Some(n) = opt_long(opts, "tcp_keepalive_retries") {
+    if let Some(n) = opt_long(opts, "tcp_keepalive_retries")? {
         builder = builder.tcp_keepalive_retries(
             checked_u32("tcp_keepalive_retries", n).map_err(PhpException::default)?,
         );
     }
-    if let Some(n) = opt_long(opts, "tcp_send_buffer_size") {
+    if let Some(n) = opt_long(opts, "tcp_send_buffer_size")? {
         builder = builder.tcp_send_buffer_size(
             checked_usize("tcp_send_buffer_size", n).map_err(PhpException::default)?,
         );
     }
-    if let Some(n) = opt_long(opts, "tcp_recv_buffer_size") {
+    if let Some(n) = opt_long(opts, "tcp_recv_buffer_size")? {
         builder = builder.tcp_recv_buffer_size(
             checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::default)?,
         );
     }
 
     // ---- network ----
-    if let Some(addr) = opt_str(opts, "local_address") {
+    if let Some(addr) = opt_str(opts, "local_address")? {
         let ip: std::net::IpAddr = addr
             .parse()
             .map_err(|_| PhpException::default(format!("invalid local_address IP: '{addr}'")))?;
         builder = builder.local_address(ip);
     }
     #[cfg(unix)]
-    if let Some(iface) = opt_str(opts, "interface") {
+    if let Some(iface) = opt_str(opts, "interface")? {
         builder = builder.interface(iface.to_string());
     }
-    if let Some(url) = opt_str(opts, "proxy") {
+    if let Some(url) = opt_str(opts, "proxy")? {
         let proxy = wreq::Proxy::all(url)
             .map_err(|e| PhpException::default(format!("invalid proxy '{url}': {e}")))?;
         builder = builder.proxy(proxy);
     }
-    if opt_bool(opts, "no_proxy").unwrap_or(false) {
+    if opt_bool(opts, "no_proxy")?.unwrap_or(false) {
         builder = builder.no_proxy();
     }
-    if opt_bool(opts, "no_hickory_dns").unwrap_or(false) {
+    if opt_bool(opts, "no_hickory_dns")?.unwrap_or(false) {
         builder = builder.no_hickory_dns();
     }
     if let Some(table) = opts.get("resolve").and_then(|zv| zv.array()) {
@@ -638,21 +642,21 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
 
     // ---- TLS ----
-    if let Some(verify) = opt_bool(opts, "verify") {
+    if let Some(verify) = opt_bool(opts, "verify")? {
         builder = builder
             .tls_cert_verification(verify)
             .tls_verify_hostname(verify);
     }
-    if let Some(v) = opt_bool(opts, "tls_sni") {
+    if let Some(v) = opt_bool(opts, "tls_sni")? {
         builder = builder.tls_sni(v);
     }
-    if let Some(v) = opt_bool(opts, "tls_info") {
+    if let Some(v) = opt_bool(opts, "tls_info")? {
         builder = builder.tls_info(v);
     }
-    if let Some(v) = opt_str(opts, "min_tls_version") {
+    if let Some(v) = opt_str(opts, "min_tls_version")? {
         builder = builder.tls_min_version(parse_tls_version(v).map_err(PhpException::default)?);
     }
-    if let Some(v) = opt_str(opts, "max_tls_version") {
+    if let Some(v) = opt_str(opts, "max_tls_version")? {
         builder = builder.tls_max_version(parse_tls_version(v).map_err(PhpException::default)?);
     }
 
@@ -728,15 +732,15 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
         }
     }
 
-    if opt_bool(opts, "http1_only").unwrap_or(false)
-        && opt_bool(opts, "http2_only").unwrap_or(false)
+    if opt_bool(opts, "http1_only")?.unwrap_or(false)
+        && opt_bool(opts, "http2_only")?.unwrap_or(false)
     {
         return Err(PhpException::default(
             "options 'http1_only' and 'http2_only' are mutually exclusive".into(),
         ));
     }
 
-    if opts.get("proxy").is_some() && opt_bool(opts, "no_proxy").unwrap_or(false) {
+    if opts.get("proxy").is_some() && opt_bool(opts, "no_proxy")?.unwrap_or(false) {
         return Err(PhpException::default(
             "options 'proxy' and 'no_proxy' are mutually exclusive".into(),
         ));
@@ -786,24 +790,65 @@ fn double_value(zv: &ext_php_rs::types::Zval) -> Option<f64> {
     zv.double().or_else(|| zv.long().map(|n| n as f64))
 }
 
-/// Reads an option as a bool.
-fn opt_bool(opts: &ZendHashTable, key: &str) -> Option<bool> {
-    opts.get(key).and_then(|zv| zv.bool())
+/// Builds a "wrong type" error for an option that is present but not the
+/// expected PHP type. Options with the wrong type used to be silently ignored;
+/// we reject them so a typo like `timeout => "5"` or `no_hickory_dns => "true"`
+/// surfaces instead of leaving the setting unapplied.
+fn opt_type_error(key: &str, expected: &str) -> PhpException {
+    PhpException::default(format!("client option '{key}' must be {expected}"))
 }
 
-/// Reads an option as an integer.
-fn opt_long(opts: &ZendHashTable, key: &str) -> Option<i64> {
-    opts.get(key).and_then(|zv| zv.long())
+/// A present, non-null option value. Returns `None` for a missing key or an
+/// explicit `null` (both mean "not set"); `Some(zv)` otherwise.
+fn opt_present<'a>(opts: &'a ZendHashTable, key: &str) -> Option<&'a Zval> {
+    match opts.get(key) {
+        Some(zv) if !zv.is_null() => Some(zv),
+        _ => None,
+    }
 }
 
-/// Reads an option as a string slice.
-fn opt_str<'a>(opts: &'a ZendHashTable, key: &str) -> Option<&'a str> {
-    opts.get(key).and_then(|zv| zv.str())
+/// Reads an option as a bool. Errors if present but not a bool.
+fn opt_bool(opts: &ZendHashTable, key: &str) -> PhpResult<Option<bool>> {
+    match opt_present(opts, key) {
+        None => Ok(None),
+        Some(zv) => zv
+            .bool()
+            .map(Some)
+            .ok_or_else(|| opt_type_error(key, "a bool")),
+    }
 }
 
-/// Reads an option as a float (accepts PHP ints too).
-fn opt_f64(opts: &ZendHashTable, key: &str) -> Option<f64> {
-    opts.get(key).and_then(double_value)
+/// Reads an option as an integer. Errors if present but not an integer.
+fn opt_long(opts: &ZendHashTable, key: &str) -> PhpResult<Option<i64>> {
+    match opt_present(opts, key) {
+        None => Ok(None),
+        Some(zv) => zv
+            .long()
+            .map(Some)
+            .ok_or_else(|| opt_type_error(key, "an integer")),
+    }
+}
+
+/// Reads an option as a string slice. Errors if present but not a string.
+fn opt_str<'a>(opts: &'a ZendHashTable, key: &str) -> PhpResult<Option<&'a str>> {
+    match opt_present(opts, key) {
+        None => Ok(None),
+        Some(zv) => zv
+            .str()
+            .map(Some)
+            .ok_or_else(|| opt_type_error(key, "a string")),
+    }
+}
+
+/// Reads an option as a float (accepts PHP ints too). Errors if present but not
+/// a number.
+fn opt_f64(opts: &ZendHashTable, key: &str) -> PhpResult<Option<f64>> {
+    match opt_present(opts, key) {
+        None => Ok(None),
+        Some(zv) => double_value(zv)
+            .map(Some)
+            .ok_or_else(|| opt_type_error(key, "a number")),
+    }
 }
 
 /// Converts a PHP integer option into a `u32`, rejecting negatives and values
