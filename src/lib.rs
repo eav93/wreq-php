@@ -21,7 +21,6 @@
 use ext_php_rs::prelude::*;
 use ext_php_rs::zend::ModuleEntry;
 use ext_php_rs::{info_table_end, info_table_row, info_table_start};
-use strum::VariantArray;
 
 mod client;
 mod convert;
@@ -67,7 +66,7 @@ pub extern "C" fn module_shutdown(_type: i32, _module_number: i32) -> i32 {
 /// without booting a PHP interpreter and constructing a client.
 #[unsafe(no_mangle)]
 pub extern "C" fn module_info(_module: *mut ModuleEntry) {
-    let profiles = wreq_util::Emulation::VARIANTS.len().to_string();
+    let profiles = wreq_util::Profile::VARIANTS.len().to_string();
 
     info_table_start!();
     info_table_row!("wreq-php", "enabled");

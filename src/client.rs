@@ -151,10 +151,11 @@ impl Client {
     /// Sends the request and streams the body to `path` chunk by chunk, so peak
     /// memory stays flat no matter how large the response is.
     fn execute_to_file(&self, builder: wreq::RequestBuilder, path: &str) -> PhpResult<Response> {
+        use futures_util::StreamExt;
         use std::io::Write;
 
         runtime::block_on(async move {
-            let mut resp = builder.send().await.map_err(map_wreq_error)?;
+            let resp = builder.send().await.map_err(map_wreq_error)?;
             let meta = ResponseMeta::extract(&resp);
 
             let file = std::fs::File::create(path).map_err(|e| {
@@ -165,9 +166,11 @@ impl Client {
             let mut writer = std::io::BufWriter::new(file);
             let mut total: u64 = 0;
 
-            // `chunk()` yields the body incrementally; nothing larger than one
-            // network chunk is ever held in memory at once.
-            while let Some(chunk) = resp.chunk().await.map_err(map_wreq_error)? {
+            // `bytes_stream()` yields the body incrementally; nothing larger
+            // than one network chunk is ever held in memory at once.
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(map_wreq_error)?;
                 writer.write_all(&chunk).map_err(|e| {
                     PhpException::default(format!("failed writing to download sink '{path}': {e}"))
                 })?;
@@ -406,7 +409,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
     if let Some(n) = opt_long(opts, "pool_max_size") {
         builder =
-            builder.pool_max_size(checked_u32("pool_max_size", n).map_err(PhpException::default)?);
+            builder.pool_max_size(checked_usize("pool_max_size", n).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout") {
         builder = builder.pool_idle_timeout(
@@ -569,7 +572,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
 
     // ---- TLS ----
     if let Some(verify) = opt_bool(opts, "verify") {
-        builder = builder.cert_verification(verify).verify_hostname(verify);
+        builder = builder.tls_cert_verification(verify).tls_verify_hostname(verify);
     }
     if let Some(v) = opt_bool(opts, "tls_sni") {
         builder = builder.tls_sni(v);
@@ -578,10 +581,10 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tls_info(v);
     }
     if let Some(v) = opt_str(opts, "min_tls_version") {
-        builder = builder.min_tls_version(parse_tls_version(v).map_err(PhpException::default)?);
+        builder = builder.tls_min_version(parse_tls_version(v).map_err(PhpException::default)?);
     }
     if let Some(v) = opt_str(opts, "max_tls_version") {
-        builder = builder.max_tls_version(parse_tls_version(v).map_err(PhpException::default)?);
+        builder = builder.tls_max_version(parse_tls_version(v).map_err(PhpException::default)?);
     }
 
     builder
