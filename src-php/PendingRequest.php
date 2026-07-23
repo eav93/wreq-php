@@ -181,7 +181,11 @@ final class PendingRequest
         ?string $contentType = null,
     ): self {
         if (is_resource($contents)) {
-            $contents = stream_get_contents($contents);
+            $read = stream_get_contents($contents);
+            if ($read === false) {
+                throw new \RuntimeException("attach(): failed to read stream for \"$name\"");
+            }
+            $contents = $read;
         }
 
         $part = ['name' => $name, 'contents' => (string) $contents];
@@ -221,9 +225,15 @@ final class PendingRequest
      * {@see Response::downloadedBytes()} for the number of bytes written.
      *
      * Cannot be combined with `asMultipart()`.
+     *
+     * @throws \InvalidArgumentException If the path is empty or contains a NUL byte.
      */
     public function sink(string $path): self
     {
+        if ($path === '' || str_contains($path, "\0")) {
+            throw new \InvalidArgumentException('sink() path must be a non-empty string without NUL bytes');
+        }
+
         $clone = clone $this;
         $clone->sink = $path;
 
@@ -331,6 +341,15 @@ final class PendingRequest
         if ($this->bodyFormat === 'multipart') {
             if ($this->sink !== null) {
                 throw new \InvalidArgumentException('sink() cannot be combined with asMultipart()');
+            }
+            // A raw string body has no place in multipart — reject it instead of
+            // silently dropping it (the signature accepts string for non-multipart
+            // requests).
+            if (is_string($data) && $data !== '') {
+                throw new \InvalidArgumentException('a string body cannot be sent as multipart/form-data; pass text fields as an array or use attach()');
+            }
+            if ($this->rawBody !== null) {
+                throw new \InvalidArgumentException('withBody() cannot be combined with asMultipart()');
             }
 
             $fields = is_array($data) ? $data : [];

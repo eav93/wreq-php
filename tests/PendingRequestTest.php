@@ -222,4 +222,22 @@ final class PendingRequestTest extends TestCase
             ->sink('/tmp/out.bin')
             ->post('https://api.test/upload', ['title' => 'hi']);
     }
+
+    public function test_string_body_with_multipart_is_rejected(): void
+    {
+        $ext = new FakeExtClient;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest($ext))
+            ->asMultipart()
+            ->post('https://api.test/upload', 'raw string body');
+    }
+
+    public function test_empty_sink_path_is_rejected(): void
+    {
+        $ext = new FakeExtClient;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest($ext))->sink('');
+    }
 }

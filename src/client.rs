@@ -39,6 +39,9 @@ pub struct Client {
     /// Whether this client resolves via Hickory (i.e. `no_hickory_dns` was not
     /// set). Hickory is not fork-safe; the system resolver (getaddrinfo) is.
     uses_hickory: bool,
+    /// Optional cap on streamed download size (`request_to_file`); `None` = no
+    /// limit. Guards against a slow server filling the disk drip by drip.
+    max_download_bytes: Option<u64>,
 }
 
 #[php_impl]
@@ -48,14 +51,25 @@ impl Client {
     pub fn __construct(options: Option<&ZendHashTable>) -> PhpResult<Self> {
         // Hickory is the default resolver; `no_hickory_dns => true` opts into
         // the fork-safe system resolver. Read it before consuming `options`.
-        let uses_hickory = match options {
-            Some(o) => !opt_bool(o, "no_hickory_dns")?.unwrap_or(false),
-            None => true,
+        let (uses_hickory, max_download_bytes) = match options {
+            Some(o) => {
+                let uses_hickory = !opt_bool(o, "no_hickory_dns")?.unwrap_or(false);
+                let max = opt_long(o, "max_download_bytes")?
+                    .map(|n| {
+                        u64::try_from(n).map_err(|_| {
+                            opt_type_error("max_download_bytes", "a non-negative integer")
+                        })
+                    })
+                    .transpose()?;
+                (uses_hickory, max)
+            }
+            None => (true, None),
         };
         let inner = build_wreq_client(options)?;
         Ok(Self {
             inner: Some(inner),
             uses_hickory,
+            max_download_bytes,
         })
     }
 
@@ -192,10 +206,12 @@ impl Client {
         url: &str,
         headers: Option<&ZendHashTable>,
     ) -> PhpResult<wreq::RequestBuilder> {
-        self.fork_guard()?;
+        // Report a closed client before the fork guard, so a closed client used
+        // in a forked child says "closed" rather than raising ForkException.
         let client = self.inner.as_ref().ok_or_else(|| {
             PhpException::default("client is closed: its connection pool has been released".into())
         })?;
+        self.fork_guard()?;
         let http_method = wreq::Method::from_bytes(method.as_bytes())
             .map_err(|_| PhpException::default(format!("invalid HTTP method: '{method}'")))?;
 
@@ -222,37 +238,76 @@ impl Client {
 
     /// Sends the request and streams the body to `path` chunk by chunk, so peak
     /// memory stays flat no matter how large the response is.
+    ///
+    /// The body is written to a sibling `<path>.part` file and atomically
+    /// renamed onto `path` only after a clean flush — a network/disk error (or
+    /// exceeding `max_download_bytes`) removes the partial file and leaves any
+    /// existing `path` untouched, so callers never see a truncated download.
     fn execute_to_file(&self, builder: wreq::RequestBuilder, path: &str) -> PhpResult<Response> {
         use futures_util::StreamExt;
         use std::io::Write;
 
+        let max = self.max_download_bytes;
         runtime::block_on(async move {
             let resp = builder.send().await.map_err(map_wreq_error)?;
             let meta = ResponseMeta::extract(&resp);
 
-            let file = std::fs::File::create(path).map_err(|e| {
-                PhpException::default(format!("failed to open download sink '{path}': {e}"))
+            let tmp = format!("{path}.part");
+            let file = std::fs::File::create(&tmp).map_err(|e| {
+                PhpException::default(format!("failed to open download sink '{tmp}': {e}"))
             })?;
             // Buffer the writes: chunks arrive in network-sized pieces, and
             // batching them into larger syscalls keeps large downloads fast.
             let mut writer = std::io::BufWriter::new(file);
             let mut total: u64 = 0;
 
-            // `bytes_stream()` yields the body incrementally; nothing larger
-            // than one network chunk is ever held in memory at once.
-            let mut stream = resp.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(map_wreq_error)?;
-                writer.write_all(&chunk).map_err(|e| {
-                    PhpException::default(format!("failed writing to download sink '{path}': {e}"))
+            // Stream to the temp file; on any error, drop the writer and unlink
+            // the partial file before returning.
+            let streamed: PhpResult<()> = async {
+                // `bytes_stream()` yields the body incrementally; nothing larger
+                // than one network chunk is ever held in memory at once.
+                let mut stream = resp.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(map_wreq_error)?;
+                    total += chunk.len() as u64;
+                    if let Some(limit) = max {
+                        if total > limit {
+                            return Err(PhpException::default(format!(
+                                "download exceeds max_download_bytes ({limit})"
+                            )));
+                        }
+                    }
+                    writer.write_all(&chunk).map_err(|e| {
+                        PhpException::default(format!(
+                            "failed writing to download sink '{tmp}': {e}"
+                        ))
+                    })?;
+                }
+                writer.flush().map_err(|e| {
+                    PhpException::default(format!("failed flushing download sink '{tmp}': {e}"))
                 })?;
-                total += chunk.len() as u64;
+                Ok(())
             }
-            writer.flush().map_err(|e| {
-                PhpException::default(format!("failed flushing download sink '{path}': {e}"))
-            })?;
+            .await;
 
-            Ok(meta.into_download(total))
+            // Close the file (drop the writer) before renaming/removing.
+            drop(writer);
+
+            match streamed {
+                Ok(()) => {
+                    std::fs::rename(&tmp, path).map_err(|e| {
+                        let _ = std::fs::remove_file(&tmp);
+                        PhpException::default(format!(
+                            "failed to finalize download '{path}' (renaming '{tmp}'): {e}"
+                        ))
+                    })?;
+                    Ok(meta.into_download(total))
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    Err(e)
+                }
+            }
         })
     }
 }
@@ -344,10 +399,14 @@ fn build_multipart(
     if let Some(fields) = fields {
         for (name, value) in fields.iter() {
             let name = name.to_string();
-            let value = value
-                .str()
-                .ok_or_else(|| PhpException::default(format!("field '{name}' must be a string")))?;
-            form = form.text(name, value.to_string());
+            // PHP forms routinely carry ints/floats/bools; coerce scalars to
+            // string (as PHP's own `(string)` cast would) instead of rejecting.
+            let value = scalar_to_string(value).ok_or_else(|| {
+                PhpException::default(format!(
+                    "field '{name}' must be a scalar (string/int/float/bool)"
+                ))
+            })?;
+            form = form.text(name, value);
         }
     }
 
@@ -365,11 +424,16 @@ fn build_multipart(
 
             // Raw bytes — read via the zend_string so binary file content
             // survives (a PHP string is not necessarily valid UTF-8).
-            let contents = file
-                .get("contents")
-                .and_then(|zv| zv.zend_str())
+            // Distinguish a missing key from a present-but-wrong-type value.
+            let contents_zv = file.get("contents").ok_or_else(|| {
+                PhpException::default(format!("attachment '{name}' is missing 'contents'"))
+            })?;
+            let contents = contents_zv
+                .zend_str()
                 .ok_or_else(|| {
-                    PhpException::default(format!("attachment '{name}' is missing 'contents'"))
+                    PhpException::default(format!(
+                        "attachment '{name}' 'contents' must be a string"
+                    ))
                 })?
                 .as_ref()
                 .to_vec();
@@ -486,9 +550,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
             .pool_max_size(checked_usize("pool_max_size", n).map_err(PhpException::default)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout")? {
-        builder = builder.pool_idle_timeout(
-            checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?,
-        );
+        // 0 = "no idle timeout" (skip the call), consistent with `timeout`.
+        // Passing Duration::ZERO would instead evict every connection
+        // immediately, effectively disabling the pool.
+        let d = checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.pool_idle_timeout(d);
+        }
     }
 
     // ---- timeouts ----
@@ -568,25 +636,31 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tcp_reuse_address(v);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive")? {
-        builder = builder
-            .tcp_keepalive(checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?);
+        let d = checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.tcp_keepalive(d);
+        }
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval")? {
-        builder = builder.tcp_keepalive_interval(
-            checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?,
-        );
+        let d = checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.tcp_keepalive_interval(d);
+        }
     }
     // `tcp_user_timeout` is a Linux-family socket option (TCP_USER_TIMEOUT).
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
     if let Some(secs) = opt_f64(opts, "tcp_user_timeout")? {
-        builder = builder.tcp_user_timeout(
-            checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?,
-        );
+        let d = checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.tcp_user_timeout(d);
+        }
     }
     if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout")? {
-        builder = builder.tcp_happy_eyeballs_timeout(
-            checked_duration("tcp_happy_eyeballs_timeout", secs).map_err(PhpException::default)?,
-        );
+        let d =
+            checked_duration("tcp_happy_eyeballs_timeout", secs).map_err(PhpException::default)?;
+        if !d.is_zero() {
+            builder = builder.tcp_happy_eyeballs_timeout(d);
+        }
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries")? {
         builder = builder.tcp_keepalive_retries(
@@ -679,6 +753,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "pool_max_idle_per_host",
     "pool_max_size",
     "pool_idle_timeout",
+    "max_download_bytes",
     "timeout",
     "read_timeout",
     "connect_timeout",
@@ -746,6 +821,22 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
         ));
     }
 
+    // Platform-specific options: known everywhere (so they are not flagged as
+    // typos), but the builder call is `#[cfg]`-gated. On an unsupported OS they
+    // would silently no-op — reject them explicitly instead.
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "fuchsia")))]
+    if opts.get("tcp_user_timeout").is_some() {
+        return Err(PhpException::default(
+            "option 'tcp_user_timeout' is only supported on Linux/Android/Fuchsia".into(),
+        ));
+    }
+    #[cfg(not(unix))]
+    if opts.get("interface").is_some() {
+        return Err(PhpException::default(
+            "option 'interface' is only supported on Unix".into(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -790,6 +881,25 @@ fn double_value(zv: &ext_php_rs::types::Zval) -> Option<f64> {
     zv.double().or_else(|| zv.long().map(|n| n as f64))
 }
 
+/// Coerces a PHP scalar (string/int/float/bool) to a string the way PHP's own
+/// `(string)` cast would, for multipart text fields. Returns `None` for
+/// non-scalars (arrays, objects) so the caller can reject them.
+fn scalar_to_string(zv: &Zval) -> Option<String> {
+    if let Some(s) = zv.str() {
+        return Some(s.to_string());
+    }
+    if let Some(n) = zv.long() {
+        return Some(n.to_string());
+    }
+    if let Some(f) = zv.double() {
+        return Some(f.to_string());
+    }
+    if let Some(b) = zv.bool() {
+        return Some(if b { "1".to_string() } else { String::new() });
+    }
+    None
+}
+
 /// Builds a "wrong type" error for an option that is present but not the
 /// expected PHP type. Options with the wrong type used to be silently ignored;
 /// we reject them so a typo like `timeout => "5"` or `no_hickory_dns => "true"`
@@ -818,14 +928,25 @@ fn opt_bool(opts: &ZendHashTable, key: &str) -> PhpResult<Option<bool>> {
     }
 }
 
-/// Reads an option as an integer. Errors if present but not an integer.
+/// Reads an option as an integer. Also accepts a float with no fractional
+/// part (e.g. `3.0`), mirroring `opt_f64`'s acceptance of ints, so the two
+/// helpers stay consistent. Errors if present but not integer-valued.
 fn opt_long(opts: &ZendHashTable, key: &str) -> PhpResult<Option<i64>> {
     match opt_present(opts, key) {
         None => Ok(None),
-        Some(zv) => zv
-            .long()
-            .map(Some)
-            .ok_or_else(|| opt_type_error(key, "an integer")),
+        Some(zv) => {
+            if let Some(n) = zv.long() {
+                return Ok(Some(n));
+            }
+            // A whole-valued float within i64 range is accepted as an integer.
+            if let Some(f) = zv.double() {
+                if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                {
+                    return Ok(Some(f as i64));
+                }
+            }
+            Err(opt_type_error(key, "an integer"))
+        }
     }
 }
 

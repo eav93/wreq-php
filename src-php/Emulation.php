@@ -64,20 +64,17 @@ final class Emulation
     /**
      * Every profile name in the given family (e.g. `chrome` → `chrome_*`).
      *
-     * Mirrors the native `variants_for_family`: the family is trimmed,
-     * lower-cased and suffixed with `_`, so `like('chrome')` matches
-     * `chrome_131` but not a hypothetical `chromium_131`.
+     * Delegates to the native `Ext\Emulation::like` so the family-matching rule
+     * (trim, lower-case, `_` suffix) lives in one place — if it changes in Rust,
+     * PHP follows automatically.
      *
      * @return array<int, string>
      */
     public static function like(string $family): array
     {
-        $prefix = strtolower(trim($family)).'_';
+        Extension::ensure();
 
-        return array_values(array_filter(
-            self::all(),
-            static fn (string $name): bool => str_starts_with(strtolower($name), $prefix),
-        ));
+        return Ext\Emulation::like($family);
     }
 
     /**

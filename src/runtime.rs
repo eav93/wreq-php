@@ -48,13 +48,30 @@ static RUNTIME: Mutex<Option<(u32, Arc<Runtime>)>> = Mutex::new(None);
 /// and rebuilding it after a `fork` (when the stored PID no longer matches).
 fn current() -> Arc<Runtime> {
     let pid = std::process::id();
-    let mut guard = RUNTIME.lock().expect("wreq-php runtime mutex poisoned");
 
+    // Fast path: our runtime already exists. `into_inner` on a poisoned mutex
+    // keeps us usable instead of panicking every caller after one poison.
+    {
+        let guard = RUNTIME.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((owner, rt)) = guard.as_ref() {
+            if *owner == pid {
+                return Arc::clone(rt);
+            }
+        }
+    }
+
+    // Build the runtime *before* re-taking the lock: `build()` can panic (thread
+    // creation failure), and doing it outside the critical section means such a
+    // panic never poisons the mutex and wedges every future request.
+    let rt = Arc::new(build());
+
+    let mut guard = RUNTIME.lock().unwrap_or_else(|e| e.into_inner());
     match guard.as_ref() {
-        Some((owner, rt)) if *owner == pid => return Arc::clone(rt),
+        // Another thread built ours while we were building — use theirs, drop
+        // the one we just made (its threads shut down when the Arc is dropped).
+        Some((owner, existing)) if *owner == pid => return Arc::clone(existing),
         // Inherited across a fork: the runtime belongs to the parent process and
-        // must not be dropped here. Abandon it without running Drop, then fall
-        // through to build a fresh one for this process.
+        // must not be dropped here. Abandon it without running Drop.
         Some(_) => {
             if let Some((_, stale)) = guard.take() {
                 mem::forget(stale);
@@ -62,8 +79,6 @@ fn current() -> Arc<Runtime> {
         }
         None => {}
     }
-
-    let rt = Arc::new(build());
     *guard = Some((pid, Arc::clone(&rt)));
     rt
 }
@@ -81,10 +96,7 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
 /// enough to finish — we only release the static slot.
 pub fn shutdown() {
     let pid = std::process::id();
-    let taken = RUNTIME
-        .lock()
-        .expect("wreq-php runtime mutex poisoned")
-        .take();
+    let taken = RUNTIME.lock().unwrap_or_else(|e| e.into_inner()).take();
     if let Some((owner, arc)) = taken {
         // Runtime inherited from a parent across fork — its threads/fds are not
         // ours; dropping it would panic. Leak it instead (the child is exiting).
@@ -118,11 +130,14 @@ fn build() -> Runtime {
 /// worker is its own process with its own runtime, so each extra thread is paid
 /// for N workers over: keeping the default at 1 avoids hundreds of idle threads
 /// on busy pools. `WREQ_PHP_WORKER_THREADS` lets heavily-concurrent setups tune
-/// it up without a rebuild.
+/// it up without a rebuild; it is clamped to a sane maximum so a typo like
+/// `1000000` cannot try to spawn a million threads and abort the process.
 fn worker_threads() -> usize {
+    const MAX_WORKER_THREADS: usize = 256;
     std::env::var("WREQ_PHP_WORKER_THREADS")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(1)
+        .min(MAX_WORKER_THREADS)
 }

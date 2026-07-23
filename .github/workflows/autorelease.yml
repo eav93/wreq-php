@@ -62,7 +62,10 @@ jobs:
             exit 0
           fi
 
-          latest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+          # Only consider stable vMAJOR.MINOR.PATCH tags. A pre-release like
+          # v1.2.3-beta.1 would otherwise feed "beta.1" into $((...)) and abort.
+          latest=$(git tag -l 'v*' --sort=-version:refname \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
           if [ -z "$latest" ]; then
             next="v0.1.0"
           else
@@ -90,4 +93,5 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.version.outputs.tag }}
-    secrets: inherit
+    # release.yml only needs the automatic GITHUB_TOKEN (via its own
+    # `permissions:` block) to upload assets — no repo secrets to inherit.

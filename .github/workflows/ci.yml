@@ -30,7 +30,9 @@ on:
     paths-ignore: ['**.md', 'LICENSE', '.gitignore']
 
 permissions:
-  contents: write
+  # CI only reads the code and runs tests — no commits back (stub regeneration
+  # was removed). Least privilege.
+  contents: read
 
 # Cancel superseded PR runs to save runners; keep main runs serial so every
 # pushed commit gets validated.
@@ -100,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.1', '8.5']
+        php: ['8.1', '8.3', '8.5']
     steps:
       - uses: actions/checkout@v6
 
@@ -188,3 +190,27 @@ jobs:
             -w /workspace \
             php:${{ matrix.php }}-cli-alpine \
             sh scripts/ci/musl-build.sh test
+
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-audit binary
+        id: cache-cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}
+
+      - name: Install cargo-audit
+        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --locked
+
+      # Scans the dependency tree (incl. boring-sys, wreq) against the RustSec
+      # advisory DB. Fails the job on a known vulnerability.
+      - name: cargo audit
+        run: cargo audit

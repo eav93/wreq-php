@@ -21,6 +21,12 @@ final class Response
     /** Cached decoded JSON body (only meaningful once $jsonDecoded is true). */
     private mixed $jsonValue = null;
 
+    /** Whether the object body has been decoded and cached yet. */
+    private bool $objectDecoded = false;
+
+    /** Cached decoded object body (only meaningful once $objectDecoded is true). */
+    private mixed $objectValue = null;
+
     /**
      * @param  Ext\Response  $raw  The native response object.
      * @param  string|null  $sink  Path the body was streamed to, if any.
@@ -93,7 +99,12 @@ final class Response
      */
     public function object(): mixed
     {
-        return json_decode($this->body(), false, 512, JSON_THROW_ON_ERROR);
+        if (! $this->objectDecoded) {
+            $this->objectValue = json_decode($this->body(), false, 512, JSON_THROW_ON_ERROR);
+            $this->objectDecoded = true;
+        }
+
+        return $this->objectValue;
     }
 
     /**

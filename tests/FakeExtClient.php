@@ -24,7 +24,7 @@ final class FakeExtClient
     /**
      * @param  array<string, string>|null  $headers
      */
-    public function request(string $method, string $url, ?array $headers = null, ?string $body = null): FakeRawResponse
+    public function request(string $method, string $url, ?array $headers = null, mixed $body = null): FakeRawResponse
     {
         $this->lastRequest = [
             'method' => $method,
@@ -66,8 +66,8 @@ final class FakeExtClient
         string $method,
         string $url,
         ?array $headers = null,
-        ?string $body = null,
-        string $path = '',
+        mixed $body = null,
+        ?string $path = null,
     ): FakeRawResponse {
         $this->lastDownload = [
             'method' => $method,

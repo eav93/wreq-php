@@ -147,6 +147,7 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 | `pool_max_size` | int | Max total connections in the pool. |
 | `pool_idle_timeout` | float | Idle socket lifetime, seconds. |
 | `timeout` / `read_timeout` / `connect_timeout` | float | Request / body-read / connect timeouts, seconds. `0` means no timeout; negative/NaN/infinite values are rejected. |
+| `max_download_bytes` | int | Cap on `sink()` download size; the partial file is removed if exceeded. Omit for no limit. |
 | `cookies` | bool | Enable a per-client cookie jar. |
 | `gzip` / `brotli` / `zstd` / `deflate` | bool | Toggle response decompression. |
 | `max_redirects` | int | Redirect limit; `0` disables following. |
@@ -170,6 +171,12 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 Settings that need Rust objects (client certificates, custom cert/DNS stores,
 HTTP/2 frame tuning, tower layers) are not exposed — use the `wreq` crate
 directly for those.
+
+Options are **type-checked**: a value of the wrong PHP type (e.g.
+`timeout => "5"` or `verify => "true"`) is rejected with a clear error rather
+than silently ignored. Bools must be `true`/`false`, strings must be strings;
+an integer is accepted where a float is expected (and a whole-valued float
+where an integer is expected). An explicit `null` means "not set".
 
 > **Removed option:** `proxy_resolve_local` (present up to v1.3.x) is gone.
 > It resolved the target locally and tunnelled `CONNECT` to the IP, but relied
