@@ -501,7 +501,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // The nested form lets callers package the random/like helpers into one
     // value without scattering `emulation_os` next to it. A nested `os` wins
     // over a top-level `emulation_os`.
-    if let Some(zv) = opts.get("emulation") {
+    if let Some(zv) = opt_present(opts, "emulation") {
         let (profile, nested_os) = if let Some(inner) = zv.array() {
             let profile = inner.get("profile").and_then(|z| z.str()).ok_or_else(|| {
                 PhpException::default("emulation['profile'] must be a string".into())
@@ -815,7 +815,7 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
         ));
     }
 
-    if opts.get("proxy").is_some() && opt_bool(opts, "no_proxy")?.unwrap_or(false) {
+    if opt_present(opts, "proxy").is_some() && opt_bool(opts, "no_proxy")?.unwrap_or(false) {
         return Err(PhpException::default(
             "options 'proxy' and 'no_proxy' are mutually exclusive".into(),
         ));
@@ -825,13 +825,13 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
     // typos), but the builder call is `#[cfg]`-gated. On an unsupported OS they
     // would silently no-op — reject them explicitly instead.
     #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "fuchsia")))]
-    if opts.get("tcp_user_timeout").is_some() {
+    if opt_present(opts, "tcp_user_timeout").is_some() {
         return Err(PhpException::default(
             "option 'tcp_user_timeout' is only supported on Linux/Android/Fuchsia".into(),
         ));
     }
     #[cfg(not(unix))]
-    if opts.get("interface").is_some() {
+    if opt_present(opts, "interface").is_some() {
         return Err(PhpException::default(
             "option 'interface' is only supported on Unix".into(),
         ));
@@ -939,8 +939,11 @@ fn opt_long(opts: &ZendHashTable, key: &str) -> PhpResult<Option<i64>> {
                 return Ok(Some(n));
             }
             // A whole-valued float within i64 range is accepted as an integer.
+            // `i64::MAX as f64` rounds up to 2^63, which would saturate back to
+            // i64::MAX (a silent -1) — use a strict `<` so 2^63 is rejected.
+            // i64::MIN is exactly representable, so `>=` is correct there.
             if let Some(f) = zv.double() {
-                if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < i64::MAX as f64
                 {
                     return Ok(Some(f as i64));
                 }
