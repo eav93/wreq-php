@@ -258,17 +258,35 @@ impl Client {
             let resp = builder.send().await.map_err(map_wreq_error)?;
             let meta = ResponseMeta::extract(&resp);
 
-            let seq = DOWNLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
-            let tmp = format!("{path}.{}.{}.part", std::process::id(), seq);
             // create_new = O_CREAT|O_EXCL: fails if the path exists (incl. a
-            // dangling symlink), so we never overwrite or follow a plant.
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)
-                .map_err(|e| {
-                    PhpException::default(format!("failed to open download sink '{tmp}': {e}"))
-                })?;
+            // dangling symlink), so we never overwrite or follow a plant. A
+            // stale `.part` left by a crashed run (or a PID reused after a
+            // restart with the seq reset) would collide — retry with fresh
+            // sequence numbers before giving up.
+            let pid = std::process::id();
+            let (file, tmp) = {
+                let mut attempt = 0;
+                loop {
+                    let seq = DOWNLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
+                    let tmp = format!("{path}.{pid}.{seq}.part");
+                    match std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&tmp)
+                    {
+                        Ok(f) => break (f, tmp),
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt < 64 => {
+                            attempt += 1;
+                            continue;
+                        }
+                        Err(e) => {
+                            return Err(PhpException::default(format!(
+                                "failed to open download sink '{tmp}': {e}"
+                            )));
+                        }
+                    }
+                }
+            };
             // Buffer the writes: chunks arrive in network-sized pieces, and
             // batching them into larger syscalls keeps large downloads fast.
             let mut writer = std::io::BufWriter::new(file);
@@ -867,9 +885,17 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
     }
 
     // Emulation modifiers only take effect when `emulation` is set (they are
-    // read inside that branch of build_wreq_client). Type-check them here so a
-    // wrong type is rejected even without `emulation`, rather than silently
-    // ignored — the `?` propagates opt_*'s type error.
+    // read inside that branch of build_wreq_client). Reject them when
+    // `emulation` is absent — accepting a no-op is a silent footgun — and
+    // type-check them (the `?` propagates opt_*'s type error) otherwise.
+    let has_emulation = opt_present(opts, "emulation").is_some();
+    for key in ["emulation_os", "skip_http2", "skip_headers"] {
+        if opt_present(opts, key).is_some() && !has_emulation {
+            return Err(PhpException::default(format!(
+                "option '{key}' has no effect without 'emulation'"
+            )));
+        }
+    }
     opt_str(opts, "emulation_os")?;
     opt_bool(opts, "skip_http2")?;
     opt_bool(opts, "skip_headers")?;
