@@ -134,17 +134,24 @@ impl Client {
 }
 
 impl Client {
-    /// Rejects use of a Hickory-backed client across `fork(2)`.
+    /// Rejects use of Hickory DNS after `fork(2)` once the parent has used it.
     ///
-    /// Hickory keeps a process-global resolver bound to the Tokio runtime that
-    /// built it; that runtime does not survive `fork`, so a lookup in a forked
-    /// child hangs until the connect timeout. We detect the fork by tagging the
-    /// owning PID lazily on first Hickory use: a PID mismatch means we are in a
-    /// child that inherited a Hickory client, and we raise `ForkException`
-    /// instead of hanging.
+    /// Hickory's resolver is a **process-global** singleton bound to the Tokio
+    /// runtime that first built it. That runtime does not survive `fork`, so
+    /// any lookup in a forked child hangs until the connect timeout — and this
+    /// is global, so building a *fresh* client in the child does not help: it
+    /// still shares the parent's dead resolver. The only escape once the parent
+    /// has touched Hickory is `no_hickory_dns` (the system resolver is
+    /// fork-safe).
     ///
-    /// Clients with `no_hickory_dns` use the system resolver (getaddrinfo),
-    /// which is fork-safe, so they skip this check entirely.
+    /// We tag the owning PID lazily on first Hickory use (never at module init,
+    /// so php-fpm workers are not misflagged). A PID mismatch means we inherited
+    /// a live Hickory resolver across `fork`; we raise `ForkException` instead
+    /// of hanging. If the parent never used Hickory (owner still 0), the child
+    /// claims ownership and builds the resolver fresh on its own runtime — that
+    /// case is allowed.
+    ///
+    /// Clients with `no_hickory_dns` use getaddrinfo and skip this check.
     fn fork_guard(&self) -> PhpResult<()> {
         if !self.uses_hickory {
             return Ok(());
@@ -155,10 +162,14 @@ impl Client {
             Ok(_) => Ok(()),
             // Same process re-using its own resolver.
             Err(owner) if owner == pid => Ok(()),
-            // Different PID: inherited across fork. Refuse before it hangs.
+            // Different PID: the parent already built the process-global Hickory
+            // resolver, which is now dead in this child. A fresh client would
+            // inherit the same dead singleton, so the only fix is system DNS.
             Err(owner) => Err(PhpException::from_class::<ForkException>(format!(
-                "Hickory DNS client used across fork(2): built in PID {owner}, used in PID {pid}. \
-                 Set no_hickory_dns => true (system DNS is fork-safe) or create the client after forking."
+                "Hickory DNS resolver inherited across fork(2): initialised in PID {owner}, \
+                 used in PID {pid}. Hickory's resolver is process-global and bound to the \
+                 parent's runtime, so a new client in the child cannot recover it. Set \
+                 no_hickory_dns => true (the system resolver is fork-safe)."
             ))),
         }
     }
