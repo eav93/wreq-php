@@ -52,7 +52,7 @@ jobs:
       # Check out the exact commit CI validated (workflow_run does not do this
       # by default — it would otherwise use the default branch head). head_sha
       # is a commit SHA, not attacker-controllable free text.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}

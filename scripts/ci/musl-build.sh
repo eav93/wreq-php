@@ -36,7 +36,7 @@ esac
 WS_OWNER="$(stat -c '%u:%g' .)"
 trap 'chown -R "$WS_OWNER" .' EXIT
 
-# build-base/cmake/perl/go build BoringSSL via wreq's boring-sys2; clang+llvm
+# build-base/cmake/perl/go build BoringSSL via wreq's btls-sys; clang+llvm
 # provide libclang for bindgen. The PHP image already ships php-config and the
 # Zend headers.
 apk add --no-cache \

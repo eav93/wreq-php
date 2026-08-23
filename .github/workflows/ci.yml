@@ -13,7 +13,7 @@ name: CI
 #
 # Windows is intentionally absent from the matrix: PHP for Windows is built
 # with a pinned MSVC toolset (14.29 for 8.1-8.3, 14.40+ for 8.4-8.5), and
-# matching the runtime MSVC of Rust + bindgen + boring-sys + the chocolatey
+# matching the runtime MSVC of Rust + bindgen + btls-sys + the chocolatey
 # LLVM that bindgen needs has proven too fragile for CI. README directs
 # Windows users to `cargo build --release`.
 #
@@ -49,7 +49,7 @@ jobs:
     name: Rust checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -104,7 +104,7 @@ jobs:
       matrix:
         php: ['8.1', '8.3', '8.5']
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -135,7 +135,7 @@ jobs:
           - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
           - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -178,7 +178,7 @@ jobs:
         # Docker-backed jobs. release.yml builds the full PHP × arch matrix.
         php: ['8.1', '8.5']
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # The runner stays on Ubuntu; only scripts/ci/musl-build.sh runs inside
       # Alpine via `docker run`. `test` mode does build + smoke load + phpunit
@@ -195,13 +195,13 @@ jobs:
     name: cargo audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo-audit binary
         id: cache-cargo-audit
-        uses: actions/cache@v4
+        uses: actions/cache@v7
         with:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-${{ runner.os }}
@@ -210,7 +210,7 @@ jobs:
         if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --locked
 
-      # Scans the dependency tree (incl. boring-sys, wreq) against the RustSec
+      # Scans the dependency tree (incl. btls-sys, wreq) against the RustSec
       # advisory DB. Fails the job on a known vulnerability.
       - name: cargo audit
         run: cargo audit

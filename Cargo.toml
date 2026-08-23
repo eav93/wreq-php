@@ -2,10 +2,10 @@
 name = "wreq_php"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85.0"
+rust-version = "1.98.0"
 description = "PHP HTTP client with deterministic connection pooling and browser TLS/HTTP2 fingerprinting, built on wreq"
-# LGPL-3.0 because the linked `wreq-util` crate is LGPL-3.0; see LICENSE and
-# THIRD_PARTY_LICENSES.md.
+# The project remains LGPL-3.0-or-later; current Rust dependencies are
+# permissively licensed. See LICENSE and THIRD_PARTY_LICENSES.md.
 license = "LGPL-3.0-or-later"
 
 [lib]
@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 ext-php-rs = { version = "0.15.15", features = ["anyhow", "indexmap"] }
 bytes = "1"
-wreq = { version = "6.0.0-rc.29", features = [
+wreq = { version = "0.16.0", features = [
     "cookies",
     "gzip",
     "brotli",
@@ -31,7 +31,7 @@ wreq = { version = "6.0.0-rc.29", features = [
     "socks",
     "stream",
 ] }
-wreq-util = { version = "3.0.0-rc.14", features = [
+wreq-util = { version = "0.2.0", features = [
     "emulation",
     "emulation-serde",
 ] }
@@ -40,6 +40,13 @@ futures-util = "0.3"
 serde_json = "1"
 thiserror = "2"
 indexmap = "2"
+
+# On ELF targets PHP commonly loads OpenSSL into the same process. Prefix
+# wreq's BoringSSL symbols there to prevent collisions. Upstream only supports
+# this mitigation on Linux/Android; enabling it on macOS crashes on first TLS
+# use with wreq 0.16.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wreq = { version = "0.16.0", features = ["prefix-symbols"] }
 
 [build-dependencies]
 ext-php-rs = { version = "0.15.15", features = ["anyhow"] }

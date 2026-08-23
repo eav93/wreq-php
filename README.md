@@ -49,6 +49,7 @@ extension=/path/printed/by/the/installer/wreq_php.so
 No prebuilt binary for your platform? Build it from source:
 
 ```bash
+# wreq 0.16 requires Rust 1.98 or newer.
 cargo build --release
 # then point php.ini at target/release/libwreq_php.so
 ```
@@ -249,8 +250,6 @@ skipped automatically when it is not loaded.
 
 ## License
 
-**LGPL-3.0-or-later.** The browser-emulation crate `wreq-util` is LGPL-3.0, and
-the prebuilt binaries statically link it, so the project as a whole is
-LGPL-3.0. See [`LICENSE`](LICENSE) and
-[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for details and the
-relinking provisions.
+**LGPL-3.0-or-later.** The linked `wreq` and `wreq-util` crates are Apache-2.0;
+the project itself remains available under the LGPL. See [`LICENSE`](LICENSE)
+and [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for details.
