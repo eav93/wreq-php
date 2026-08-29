@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 ext-php-rs = { version = "0.15.15", features = ["anyhow", "indexmap"] }
 bytes = "1"
-wreq = { version = "0.16.0", features = [
+wreq = { version = "0.16.1", features = [
     "cookies",
     "gzip",
     "brotli",
@@ -46,7 +46,7 @@ indexmap = "2"
 # this mitigation on Linux/Android; enabling it on macOS crashes on first TLS
 # use with wreq 0.16.
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-wreq = { version = "0.16.0", features = ["prefix-symbols"] }
+wreq = { version = "0.16.1", features = ["prefix-symbols"] }
 
 [build-dependencies]
 ext-php-rs = { version = "0.15.15", features = ["anyhow"] }
