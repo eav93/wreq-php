@@ -46,6 +46,10 @@ def capture(omit):
                         if header[3] == 1:
                             # HPACK indexed :status=200; END_HEADERS | END_STREAM.
                             sock.sendall(bytes.fromhex('0000010105') + header[5:9] + b'\x88')
+                            # Drain acknowledgements until the client closes; closing
+                            # with unread bytes can reset TCP and discard the response.
+                            while sock.recv(4096):
+                                pass
                             return
             except Exception as exc:
                 errors.append(repr(exc))
