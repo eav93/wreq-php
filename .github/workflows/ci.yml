@@ -196,6 +196,22 @@ jobs:
             php:${{ matrix.php }}-cli-alpine \
             sh scripts/ci/musl-build.sh test
 
+  zts:
+    name: linux-gnu-${{ matrix.arch }} · php 8.5 ZTS
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and test ZTS
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace \
+             php:8.5-zts-bookworm sh scripts/ci/zts-build.sh
+
   cargo-audit:
     name: cargo audit
     runs-on: ubuntu-latest
