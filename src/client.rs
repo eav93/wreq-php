@@ -565,7 +565,8 @@ fn build_multipart(
 ///   `tls_preserve_tls13_cipher_list` (bool), `tls_enable_ocsp_stapling`
 ///   (bool), `tls_aes_hw_override` (bool), `tls_alpn_protocols` (array of
 ///   `"h2"`/`"http1"`/`"h3"`).
-/// Custom HTTP/2 tuning: `http2_initial_window_size`,
+/// Custom HTTP/2 tuning: `http2_omit_initial_window_size` (bool, default false),
+///   `http2_initial_window_size`,
 ///   `http2_initial_connection_window_size` (int, stream/connection flow
 ///   window), `http2_enable_push`, `http2_adaptive_window` (bool),
 ///   `http2_headers_pseudo_order` (array of `"method"`/`"scheme"`/
@@ -888,6 +889,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // covered by `emulation`) ----
     const HTTP2_TUNING_KEYS: &[&str] = &[
         "http2_initial_window_size",
+        "http2_omit_initial_window_size",
         "http2_initial_connection_window_size",
         "http2_enable_push",
         "http2_adaptive_window",
@@ -898,6 +900,9 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         .any(|k| opt_present(opts, k).is_some())
     {
         let mut h2 = wreq::http2::Http2Options::builder();
+        if let Some(v) = opt_bool(opts, "http2_omit_initial_window_size")? {
+            h2 = h2.omit_initial_window_size(v);
+        }
         if let Some(n) = opt_long(opts, "http2_initial_window_size")? {
             h2 = h2.initial_window_size(
                 checked_u32("http2_initial_window_size", n).map_err(PhpException::default)?,
@@ -992,6 +997,7 @@ const KNOWN_OPTIONS: &[&str] = &[
     "tls_aes_hw_override",
     "tls_alpn_protocols",
     "http2_initial_window_size",
+    "http2_omit_initial_window_size",
     "http2_initial_connection_window_size",
     "http2_enable_push",
     "http2_adaptive_window",
@@ -1013,6 +1019,15 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
             };
             return Err(PhpException::default(msg));
         }
+    }
+
+    if opt_bool(opts, "http2_omit_initial_window_size")?.unwrap_or(false)
+        && (opt_long(opts, "http2_initial_window_size")?.is_some_and(|n| n != 65_535)
+            || opt_bool(opts, "http2_adaptive_window")?.unwrap_or(false))
+    {
+        return Err(PhpException::default(
+            "http2_omit_initial_window_size requires a 65535 stream window and http2_adaptive_window=false".into(),
+        ));
     }
 
     if opt_bool(opts, "http1_only")?.unwrap_or(false)

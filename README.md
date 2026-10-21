@@ -169,8 +169,28 @@ Every `wreq::ClientBuilder` setting expressible as a PHP scalar is supported.
 | `tls_sni` / `tls_info` | bool | TLS SNI / expose TLS info. |
 | `min_tls_version` / `max_tls_version` | string | `"1.0"`–`"1.3"`. |
 
+To omit `SETTINGS_INITIAL_WINDOW_SIZE` while retaining the protocol default
+stream window of 65,535 bytes:
+
+```php
+$client = new \Wreq\Client([
+    'http2_omit_initial_window_size' => true,
+    'http2_enable_push' => false,
+    'http2_initial_connection_window_size' => 65535,
+]);
+```
+
+The omission option defaults to `false`. It rejects `http2_adaptive_window=true`
+and explicit stream windows other than 65535. Connection-level window settings
+are independent. A new native extension build is required for this option.
+The fork dependencies are pinned in Cargo.toml/Cargo.lock; upstream change:
+[wreq-proto#90](https://github.com/0x676e67/wreq-proto/pull/90).
+Run the local wire regression with
+`python3 tests/http2_settings_wire.py target/release/libwreq_php.dylib`
+(use `libwreq_php.so` on Linux).
+
 Settings that need Rust objects (client certificates, custom cert/DNS stores,
-HTTP/2 frame tuning, tower layers) are not exposed — use the `wreq` crate
+tower layers) are not exposed — use the `wreq` crate
 directly for those.
 
 Options are **type-checked**: a value of the wrong PHP type (e.g.

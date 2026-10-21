@@ -166,6 +166,11 @@ jobs:
           test -n "$SRC" || { echo "build artifact not found"; exit 1; }
           php -d extension="$PWD/$SRC" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 
+      - name: HTTP/2 SETTINGS wire regression
+        run: |
+          SRC=$(find target/release -maxdepth 1 \( -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
+          python3 tests/http2_settings_wire.py "$SRC"
+
   musl:
     name: linux-musl · php ${{ matrix.php }}
     needs: [rust-checks, php-unit]

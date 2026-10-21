@@ -2660,8 +2660,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "wreq"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16454175c8cb23d4a7285bab53b72460686195f5aef655d1abad70ab97ef46d4"
+source = "git+https://github.com/eav93/wreq.git?rev=d7706a0a1e3f8ce1bf844187d6888f59ea124f99#d7706a0a1e3f8ce1bf844187d6888f59ea124f99"
 dependencies = [
  "btls",
  "btls-sys",
@@ -2702,8 +2701,7 @@ dependencies = [
 [[package]]
 name = "wreq-proto"
 version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4d829f0427a5064829976fe790641ca21abb1d83d844812baf022dc0bdf2db"
+source = "git+https://github.com/eav93/wreq-proto.git?rev=75078215dac3802cbfdd3499c71de244e6e779ec#75078215dac3802cbfdd3499c71de244e6e779ec"
 dependencies = [
  "bytes",
  "futures-channel",
