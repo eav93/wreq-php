@@ -166,6 +166,11 @@ jobs:
           test -n "$SRC" || { echo "build artifact not found"; exit 1; }
           php -d extension="$PWD/$SRC" -r 'exit(class_exists("Wreq\\Ext\\Client") ? 0 : 1);'
 
+      - name: HTTP/2 SETTINGS wire regression
+        run: |
+          SRC=$(find target/release -maxdepth 1 \( -name 'libwreq_php.dylib' -o -name 'libwreq_php.so' \) | head -n1)
+          python3 tests/http2_settings_wire.py "$SRC"
+
   musl:
     name: linux-musl · php ${{ matrix.php }}
     needs: [rust-checks, php-unit]
@@ -190,6 +195,22 @@ jobs:
             -w /workspace \
             php:${{ matrix.php }}-cli-alpine \
             sh scripts/ci/musl-build.sh test
+
+  zts:
+    name: linux-gnu-${{ matrix.arch }} · php 8.5 ZTS
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and test ZTS
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace \
+             php:8.5-zts-bookworm sh scripts/ci/zts-build.sh
 
   cargo-audit:
     name: cargo audit

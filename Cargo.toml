@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-ext-php-rs = { version = "0.15.15", features = ["anyhow", "indexmap"] }
+ext-php-rs = { version = "0.16.3", features = ["anyhow", "indexmap"] }
 bytes = "1"
 wreq = { version = "0.16.1", features = [
     "cookies",
@@ -49,10 +49,16 @@ indexmap = "2"
 wreq = { version = "0.16.1", features = ["prefix-symbols"] }
 
 [build-dependencies]
-ext-php-rs = { version = "0.15.15", features = ["anyhow"] }
+ext-php-rs = { version = "0.16.3", features = ["anyhow"] }
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# Optional SETTINGS_INITIAL_WINDOW_SIZE omission; upstream: 0x676e67/wreq-proto#90.
+# Patch applies to wreq-util too, keeping a single wreq type/dependency graph.
+[patch.crates-io]
+wreq = { git = "https://github.com/eav93/wreq.git", rev = "d7706a0a1e3f8ce1bf844187d6888f59ea124f99" }
+wreq-proto = { git = "https://github.com/eav93/wreq-proto.git", rev = "75078215dac3802cbfdd3499c71de244e6e779ec" }

@@ -148,9 +148,39 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  zts:
+    name: linux-gnu-${{ matrix.arch }} · php 8.5 ZTS
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+      - name: Build and test ZTS
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace \
+            -e WREQ_PHP_VERSION="${{ env.REF }}" php:8.5-zts-bookworm sh scripts/ci/zts-build.sh
+      - name: Stage binary
+        run: |
+          mkdir -p dist
+          NAME="wreq_php-php8.5-zts-linux-gnu-${{ matrix.arch }}.so"
+          cp target/release/libwreq_php.so "dist/$NAME"
+          ( cd dist && sha256sum "$NAME" > "$NAME.sha256" )
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-linux-gnu-${{ matrix.arch }}-php8.5-zts
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
     name: Publish to release
-    needs: [native, musl]
+    needs: [native, musl, zts]
     runs-on: ubuntu-latest
     steps:
       - name: Download all binaries
