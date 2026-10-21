@@ -158,7 +158,7 @@ impl Emulation {
             None => Profile::VARIANTS.iter().collect(),
         };
         let pick = pick_random(&candidates).ok_or_else(|| {
-            ext_php_rs::exception::PhpException::default(format!(
+            ext_php_rs::exception::PhpException::from_message(format!(
                 "no emulation profile matches family '{}'",
                 family.unwrap_or(""),
             ))

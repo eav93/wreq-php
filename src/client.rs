@@ -104,7 +104,7 @@ impl Client {
     ) -> PhpResult<Response> {
         let bytes = body
             .and_then(|v| v.zend_str())
-            .ok_or_else(|| PhpException::default("streaming body must be a string".into()))?
+            .ok_or_else(|| PhpException::from_message("streaming body must be a string".into()))?
             .as_bytes()
             .to_vec();
         let stream = futures_util::stream::once(async move { Ok::<_, std::io::Error>(bytes) });
@@ -131,8 +131,9 @@ impl Client {
         body: Option<&Zval>,
         path: Option<&str>,
     ) -> PhpResult<Response> {
-        let path = path
-            .ok_or_else(|| PhpException::default("request_to_file: 'path' is required".into()))?;
+        let path = path.ok_or_else(|| {
+            PhpException::from_message("request_to_file: 'path' is required".into())
+        })?;
         let builder = apply_body(self.request_builder(method, url, headers)?, body)?;
         self.execute_to_file(builder, path)
     }
@@ -230,11 +231,13 @@ impl Client {
         // Report a closed client before the fork guard, so a closed client used
         // in a forked child says "closed" rather than raising ForkException.
         let client = self.inner.as_ref().ok_or_else(|| {
-            PhpException::default("client is closed: its connection pool has been released".into())
+            PhpException::from_message(
+                "client is closed: its connection pool has been released".into(),
+            )
         })?;
         self.fork_guard()?;
         let http_method = wreq::Method::from_bytes(method.as_bytes())
-            .map_err(|_| PhpException::default(format!("invalid HTTP method: '{method}'")))?;
+            .map_err(|_| PhpException::from_message(format!("invalid HTTP method: '{method}'")))?;
 
         let mut builder = client.request(http_method, url);
         if let Some(table) = headers {
@@ -301,7 +304,7 @@ impl Client {
                             continue;
                         }
                         Err(e) => {
-                            return Err(PhpException::default(format!(
+                            return Err(PhpException::from_message(format!(
                                 "failed to open download sink '{tmp}': {e}"
                             )));
                         }
@@ -324,19 +327,21 @@ impl Client {
                     total += chunk.len() as u64;
                     if let Some(limit) = max {
                         if total > limit {
-                            return Err(PhpException::default(format!(
+                            return Err(PhpException::from_message(format!(
                                 "download exceeds max_download_bytes ({limit})"
                             )));
                         }
                     }
                     writer.write_all(&chunk).map_err(|e| {
-                        PhpException::default(format!(
+                        PhpException::from_message(format!(
                             "failed writing to download sink '{tmp}': {e}"
                         ))
                     })?;
                 }
                 writer.flush().map_err(|e| {
-                    PhpException::default(format!("failed flushing download sink '{tmp}': {e}"))
+                    PhpException::from_message(format!(
+                        "failed flushing download sink '{tmp}': {e}"
+                    ))
                 })?;
                 Ok(())
             }
@@ -349,7 +354,7 @@ impl Client {
                 Ok(()) => {
                     std::fs::rename(&tmp, path).map_err(|e| {
                         let _ = std::fs::remove_file(&tmp);
-                        PhpException::default(format!(
+                        PhpException::from_message(format!(
                             "failed to finalize download '{path}' (renaming '{tmp}'): {e}"
                         ))
                     })?;
@@ -432,7 +437,7 @@ fn apply_body(
         if !zv.is_null() {
             let bytes = zv
                 .zend_str()
-                .ok_or_else(|| PhpException::default("body must be a string or null".into()))?
+                .ok_or_else(|| PhpException::from_message("body must be a string or null".into()))?
                 .as_bytes()
                 .to_vec();
             return Ok(builder.body(bytes));
@@ -454,7 +459,7 @@ fn build_multipart(
             // PHP forms routinely carry ints/floats/bools; coerce scalars to
             // string (as PHP's own `(string)` cast would) instead of rejecting.
             let value = scalar_to_string(value).ok_or_else(|| {
-                PhpException::default(format!(
+                PhpException::from_message(format!(
                     "field '{name}' must be a scalar (string/int/float/bool)"
                 ))
             })?;
@@ -464,18 +469,24 @@ fn build_multipart(
 
     if let Some(files) = files {
         for (_, file) in files.iter() {
-            let file = file
-                .array()
-                .ok_or_else(|| PhpException::default("each attachment must be an array".into()))?;
+            let file = file.array().ok_or_else(|| {
+                PhpException::from_message("each attachment must be an array".into())
+            })?;
 
             // Distinguish a missing/null key from a present-but-non-string one
             // (a non-UTF8 string is present, not "missing").
             let name = match file.get("name").filter(|zv| !zv.is_null()) {
-                None => return Err(PhpException::default("attachment is missing 'name'".into())),
+                None => {
+                    return Err(PhpException::from_message(
+                        "attachment is missing 'name'".into(),
+                    ))
+                }
                 Some(zv) => zv
                     .str()
                     .ok_or_else(|| {
-                        PhpException::default("attachment 'name' must be a UTF-8 string".into())
+                        PhpException::from_message(
+                            "attachment 'name' must be a UTF-8 string".into(),
+                        )
                     })?
                     .to_string(),
             };
@@ -484,12 +495,12 @@ fn build_multipart(
             // survives (a PHP string is not necessarily valid UTF-8).
             // Distinguish a missing key from a present-but-wrong-type value.
             let contents_zv = file.get("contents").ok_or_else(|| {
-                PhpException::default(format!("attachment '{name}' is missing 'contents'"))
+                PhpException::from_message(format!("attachment '{name}' is missing 'contents'"))
             })?;
             let contents = contents_zv
                 .zend_str()
                 .ok_or_else(|| {
-                    PhpException::default(format!(
+                    PhpException::from_message(format!(
                         "attachment '{name}' 'contents' must be a string"
                     ))
                 })?
@@ -502,7 +513,7 @@ fn build_multipart(
             // vanish). A missing/null key leaves the field unset.
             if let Some(fzv) = file.get("filename").filter(|zv| !zv.is_null()) {
                 let filename = fzv.str().ok_or_else(|| {
-                    PhpException::default(format!(
+                    PhpException::from_message(format!(
                         "attachment '{name}' 'filename' must be a string"
                     ))
                 })?;
@@ -510,13 +521,13 @@ fn build_multipart(
             }
             if let Some(czv) = file.get("content_type").filter(|zv| !zv.is_null()) {
                 let mime = czv.str().ok_or_else(|| {
-                    PhpException::default(format!(
+                    PhpException::from_message(format!(
                         "attachment '{name}' 'content_type' must be a string"
                     ))
                 })?;
-                part = part
-                    .mime_str(mime)
-                    .map_err(|e| PhpException::default(format!("invalid content_type: {e}")))?;
+                part = part.mime_str(mime).map_err(|e| {
+                    PhpException::from_message(format!("invalid content_type: {e}"))
+                })?;
             }
             form = form.part(name, part);
         }
@@ -581,7 +592,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     let Some(opts) = options else {
         return builder
             .build()
-            .map_err(|e| PhpException::default(format!("failed to build HTTP client: {e}")));
+            .map_err(|e| PhpException::from_message(format!("failed to build HTTP client: {e}")));
     };
 
     validate_options(opts)?;
@@ -596,13 +607,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     if let Some(zv) = opt_present(opts, "emulation") {
         let (profile, nested_os) = if let Some(inner) = zv.array() {
             let profile = inner.get("profile").and_then(|z| z.str()).ok_or_else(|| {
-                PhpException::default("emulation['profile'] must be a string".into())
+                PhpException::from_message("emulation['profile'] must be a string".into())
             })?;
             // A present-but-wrong-type nested `os` must error, not silently
             // fall back to the top-level `emulation_os` (mirrors `profile`).
             let os = match inner.get("os").filter(|z| !z.is_null()) {
                 Some(z) => Some(z.str().ok_or_else(|| {
-                    PhpException::default("emulation['os'] must be a string".into())
+                    PhpException::from_message("emulation['os'] must be a string".into())
                 })?),
                 None => None,
             };
@@ -610,7 +621,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         } else if let Some(name) = zv.str() {
             (name, None)
         } else {
-            return Err(PhpException::default(
+            return Err(PhpException::from_message(
                 "option 'emulation' must be a string or an array".into(),
             ));
         };
@@ -626,7 +637,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         } else {
             EmulationConfig::from_name(profile)
         }
-        .map_err(PhpException::default)?;
+        .map_err(PhpException::from_message)?;
         builder = config.apply(builder);
     }
 
@@ -644,18 +655,18 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // ---- connection pool ----
     if let Some(n) = opt_long(opts, "pool_max_idle_per_host")? {
         builder = builder.pool_max_idle_per_host(
-            checked_usize("pool_max_idle_per_host", n).map_err(PhpException::default)?,
+            checked_usize("pool_max_idle_per_host", n).map_err(PhpException::from_message)?,
         );
     }
     if let Some(n) = opt_long(opts, "pool_max_size")? {
         builder = builder
-            .pool_max_size(checked_usize("pool_max_size", n).map_err(PhpException::default)?);
+            .pool_max_size(checked_usize("pool_max_size", n).map_err(PhpException::from_message)?);
     }
     if let Some(secs) = opt_f64(opts, "pool_idle_timeout")? {
         // 0 = "no idle timeout" (skip the call), consistent with `timeout`.
         // Passing Duration::ZERO would instead evict every connection
         // immediately, effectively disabling the pool.
-        let d = checked_duration("pool_idle_timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("pool_idle_timeout", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.pool_idle_timeout(d);
         }
@@ -667,19 +678,19 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // `if secs > 0.0` guard swallowed -1/NaN silently, leaving the request with
     // no timeout at all.
     if let Some(secs) = opt_f64(opts, "timeout")? {
-        let d = checked_duration("timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("timeout", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.timeout(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "read_timeout")? {
-        let d = checked_duration("read_timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("read_timeout", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.read_timeout(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "connect_timeout")? {
-        let d = checked_duration("connect_timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("connect_timeout", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.connect_timeout(d);
         }
@@ -738,13 +749,14 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tcp_reuse_address(v);
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive")? {
-        let d = checked_duration("tcp_keepalive", secs).map_err(PhpException::default)?;
+        let d = checked_duration("tcp_keepalive", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.tcp_keepalive(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "tcp_keepalive_interval")? {
-        let d = checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::default)?;
+        let d =
+            checked_duration("tcp_keepalive_interval", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.tcp_keepalive_interval(d);
         }
@@ -752,39 +764,39 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     // `tcp_user_timeout` is a Linux-family socket option (TCP_USER_TIMEOUT).
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
     if let Some(secs) = opt_f64(opts, "tcp_user_timeout")? {
-        let d = checked_duration("tcp_user_timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("tcp_user_timeout", secs).map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.tcp_user_timeout(d);
         }
     }
     if let Some(secs) = opt_f64(opts, "tcp_happy_eyeballs_timeout")? {
-        let d =
-            checked_duration("tcp_happy_eyeballs_timeout", secs).map_err(PhpException::default)?;
+        let d = checked_duration("tcp_happy_eyeballs_timeout", secs)
+            .map_err(PhpException::from_message)?;
         if !d.is_zero() {
             builder = builder.tcp_happy_eyeballs_timeout(d);
         }
     }
     if let Some(n) = opt_long(opts, "tcp_keepalive_retries")? {
         builder = builder.tcp_keepalive_retries(
-            checked_u32("tcp_keepalive_retries", n).map_err(PhpException::default)?,
+            checked_u32("tcp_keepalive_retries", n).map_err(PhpException::from_message)?,
         );
     }
     if let Some(n) = opt_long(opts, "tcp_send_buffer_size")? {
         builder = builder.tcp_send_buffer_size(
-            checked_usize("tcp_send_buffer_size", n).map_err(PhpException::default)?,
+            checked_usize("tcp_send_buffer_size", n).map_err(PhpException::from_message)?,
         );
     }
     if let Some(n) = opt_long(opts, "tcp_recv_buffer_size")? {
         builder = builder.tcp_recv_buffer_size(
-            checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::default)?,
+            checked_usize("tcp_recv_buffer_size", n).map_err(PhpException::from_message)?,
         );
     }
 
     // ---- network ----
     if let Some(addr) = opt_str(opts, "local_address")? {
-        let ip: std::net::IpAddr = addr
-            .parse()
-            .map_err(|_| PhpException::default(format!("invalid local_address IP: '{addr}'")))?;
+        let ip: std::net::IpAddr = addr.parse().map_err(|_| {
+            PhpException::from_message(format!("invalid local_address IP: '{addr}'"))
+        })?;
         builder = builder.local_address(ip);
     }
     #[cfg(unix)]
@@ -793,7 +805,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
     }
     if let Some(url) = opt_str(opts, "proxy")? {
         let proxy = wreq::Proxy::all(url)
-            .map_err(|e| PhpException::default(format!("invalid proxy '{url}': {e}")))?;
+            .map_err(|e| PhpException::from_message(format!("invalid proxy '{url}': {e}")))?;
         builder = builder.proxy(proxy);
     }
     if opt_bool(opts, "no_proxy")?.unwrap_or(false) {
@@ -809,10 +821,10 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         for (host, value) in table.iter() {
             let host = host.to_string();
             let target = value.str().ok_or_else(|| {
-                PhpException::default(format!("resolve['{host}'] must be a string"))
+                PhpException::from_message(format!("resolve['{host}'] must be a string"))
             })?;
             let addr: std::net::SocketAddr = target.parse().map_err(|_| {
-                PhpException::default(format!(
+                PhpException::from_message(format!(
                     "resolve['{host}'] must be 'ip:port', got '{target}'"
                 ))
             })?;
@@ -833,10 +845,12 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tls_info(v);
     }
     if let Some(v) = opt_str(opts, "min_tls_version")? {
-        builder = builder.tls_min_version(parse_tls_version(v).map_err(PhpException::default)?);
+        builder =
+            builder.tls_min_version(parse_tls_version(v).map_err(PhpException::from_message)?);
     }
     if let Some(v) = opt_str(opts, "max_tls_version")? {
-        builder = builder.tls_max_version(parse_tls_version(v).map_err(PhpException::default)?);
+        builder =
+            builder.tls_max_version(parse_tls_version(v).map_err(PhpException::from_message)?);
     }
 
     // ---- custom TLS fingerprint (cipher/curve/ALPN tuning not covered by
@@ -878,7 +892,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
                 let s = v
                     .str()
                     .ok_or_else(|| opt_type_error("tls_alpn_protocols", "an array of strings"))?;
-                protos.push(parse_alpn_protocol(s).map_err(PhpException::default)?);
+                protos.push(parse_alpn_protocol(s).map_err(PhpException::from_message)?);
             }
             tls = tls.alpn_protocols(protos);
         }
@@ -905,13 +919,13 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         }
         if let Some(n) = opt_long(opts, "http2_initial_window_size")? {
             h2 = h2.initial_window_size(
-                checked_u32("http2_initial_window_size", n).map_err(PhpException::default)?,
+                checked_u32("http2_initial_window_size", n).map_err(PhpException::from_message)?,
             );
         }
         if let Some(n) = opt_long(opts, "http2_initial_connection_window_size")? {
             h2 = h2.initial_connection_window_size(
                 checked_u32("http2_initial_connection_window_size", n)
-                    .map_err(PhpException::default)?,
+                    .map_err(PhpException::from_message)?,
             );
         }
         if let Some(v) = opt_bool(opts, "http2_enable_push")? {
@@ -929,7 +943,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
                 let s = v.str().ok_or_else(|| {
                     opt_type_error("http2_headers_pseudo_order", "an array of strings")
                 })?;
-                pseudo = pseudo.push(parse_pseudo_id(s).map_err(PhpException::default)?);
+                pseudo = pseudo.push(parse_pseudo_id(s).map_err(PhpException::from_message)?);
             }
             h2 = h2.headers_pseudo_order(pseudo.build());
         }
@@ -938,7 +952,7 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
 
     builder
         .build()
-        .map_err(|e| PhpException::default(format!("failed to build HTTP client: {e}")))
+        .map_err(|e| PhpException::from_message(format!("failed to build HTTP client: {e}")))
 }
 
 /// Every option key `build_wreq_client` knows. Used to reject typos before
@@ -1017,7 +1031,7 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
                 }
                 None => format!("unknown client option '{name}'"),
             };
-            return Err(PhpException::default(msg));
+            return Err(PhpException::from_message(msg));
         }
     }
 
@@ -1025,7 +1039,7 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
         && (opt_long(opts, "http2_initial_window_size")?.is_some_and(|n| n != 65_535)
             || opt_bool(opts, "http2_adaptive_window")?.unwrap_or(false))
     {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "http2_omit_initial_window_size requires a 65535 stream window and http2_adaptive_window=false".into(),
         ));
     }
@@ -1033,13 +1047,13 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
     if opt_bool(opts, "http1_only")?.unwrap_or(false)
         && opt_bool(opts, "http2_only")?.unwrap_or(false)
     {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "options 'http1_only' and 'http2_only' are mutually exclusive".into(),
         ));
     }
 
     if opt_present(opts, "proxy").is_some() && opt_bool(opts, "no_proxy")?.unwrap_or(false) {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "options 'proxy' and 'no_proxy' are mutually exclusive".into(),
         ));
     }
@@ -1051,7 +1065,7 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
     let has_emulation = opt_present(opts, "emulation").is_some();
     for key in ["emulation_os", "skip_http2", "skip_headers"] {
         if opt_present(opts, key).is_some() && !has_emulation {
-            return Err(PhpException::default(format!(
+            return Err(PhpException::from_message(format!(
                 "option '{key}' has no effect without 'emulation'"
             )));
         }
@@ -1065,13 +1079,13 @@ fn validate_options(opts: &ZendHashTable) -> PhpResult<()> {
     // would silently no-op — reject them explicitly instead.
     #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "fuchsia")))]
     if opt_present(opts, "tcp_user_timeout").is_some() {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "option 'tcp_user_timeout' is only supported on Linux/Android/Fuchsia".into(),
         ));
     }
     #[cfg(not(unix))]
     if opt_present(opts, "interface").is_some() {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "option 'interface' is only supported on Unix".into(),
         ));
     }
@@ -1144,7 +1158,7 @@ fn scalar_to_string(zv: &Zval) -> Option<String> {
 /// we reject them so a typo like `timeout => "5"` or `no_hickory_dns => "true"`
 /// surfaces instead of leaving the setting unapplied.
 fn opt_type_error(key: &str, expected: &str) -> PhpException {
-    PhpException::default(format!("client option '{key}' must be {expected}"))
+    PhpException::from_message(format!("client option '{key}' must be {expected}"))
 }
 
 /// A present, non-null option value. Returns `None` for a missing key or an

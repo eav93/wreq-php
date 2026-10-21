@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-ext-php-rs = { version = "0.15.15", features = ["anyhow", "indexmap"] }
+ext-php-rs = { version = "0.16.3", features = ["anyhow", "indexmap"] }
 bytes = "1"
 wreq = { version = "0.16.1", features = [
     "cookies",
@@ -49,7 +49,7 @@ indexmap = "2"
 wreq = { version = "0.16.1", features = ["prefix-symbols"] }
 
 [build-dependencies]
-ext-php-rs = { version = "0.15.15", features = ["anyhow"] }
+ext-php-rs = { version = "0.16.3", features = ["anyhow"] }
 
 [profile.release]
 opt-level = 3
