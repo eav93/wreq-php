@@ -58,6 +58,8 @@ namespace Wreq\Ext {
          */
         public function request(string $method, string $url, ?array $headers = null, mixed $body = null): \Wreq\Ext\Response {}
 
+        public function requestStreaming(string $method, string $url, ?array $headers = null, mixed $body = null): \Wreq\Ext\Response {}
+
         /**
          * Executes a `multipart/form-data` request.
          *

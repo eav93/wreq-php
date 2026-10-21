@@ -13,6 +13,8 @@ final class FakeExtClient
     /** @var array{method: string, url: string, headers: array<string,string>|null, body: string|null}|null */
     public ?array $lastRequest = null;
 
+    public bool $lastRequestStreamed = false;
+
     /** @var array{method: string, url: string, headers: mixed, fields: mixed, files: mixed}|null */
     public ?array $lastMultipart = null;
 
@@ -26,6 +28,7 @@ final class FakeExtClient
      */
     public function request(string $method, string $url, ?array $headers = null, mixed $body = null): FakeRawResponse
     {
+        $this->lastRequestStreamed = false;
         $this->lastRequest = [
             'method' => $method,
             'url' => $url,
@@ -34,6 +37,14 @@ final class FakeExtClient
         ];
 
         return $this->response;
+    }
+
+    public function requestStreaming(string $method, string $url, ?array $headers = null, mixed $body = null): FakeRawResponse
+    {
+        $response = $this->request($method, $url, $headers, $body);
+        $this->lastRequestStreamed = true;
+
+        return $response;
     }
 
     /**

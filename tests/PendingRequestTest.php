@@ -143,6 +143,37 @@ final class PendingRequestTest extends TestCase
         $this->assertSame('application/xml', $ext->lastRequest['headers']['Content-Type']);
     }
 
+    public function test_streaming_body_preserves_binary_bytes_headers_and_builder_immutability(): void
+    {
+        $ext = new FakeExtClient;
+        $base = (new PendingRequest($ext))->withHeaders(['content-type' => 'application/grpc', 'te' => 'trailers']);
+        $stream = $base->withStreamingBody("\x00\xff\x00abc");
+        $stream->post('https://api.test/grpc');
+        $this->assertTrue($ext->lastRequestStreamed);
+        $this->assertSame("\x00\xff\x00abc", $ext->lastRequest['body']);
+        $this->assertSame(['content-type', 'te'], array_keys($ext->lastRequest['headers']));
+
+        $base->withBody('sized')->post('https://api.test/grpc');
+        $this->assertFalse($ext->lastRequestStreamed);
+        $stream->withBody('replacement')->post('https://api.test/grpc');
+        $this->assertFalse($ext->lastRequestStreamed);
+        $stream->post('https://api.test/grpc');
+        $this->assertTrue($ext->lastRequestStreamed);
+    }
+
+    public function test_streaming_body_requires_native_support(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('requires a rebuilt wreq_php extension');
+        (new PendingRequest(new \stdClass))->withStreamingBody('bytes')->post('https://api.test/grpc');
+    }
+
+    public function test_streaming_body_rejects_download_sink(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new PendingRequest(new FakeExtClient))->withStreamingBody('bytes')->sink('/unused')->post('https://api.test/grpc');
+    }
+
     public function test_with_body_keeps_a_previously_set_content_type(): void
     {
         $ext = new FakeExtClient;

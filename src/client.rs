@@ -93,6 +93,27 @@ impl Client {
         self.execute(builder)
     }
 
+    /// Sends a raw body with an unknown size hint, suppressing automatic
+    /// Content-Length on HTTP/2 (HTTP/1 uses chunked transfer encoding).
+    pub fn request_streaming(
+        &self,
+        method: &str,
+        url: &str,
+        headers: Option<&ZendHashTable>,
+        body: Option<&Zval>,
+    ) -> PhpResult<Response> {
+        let bytes = body
+            .and_then(|v| v.zend_str())
+            .ok_or_else(|| PhpException::default("streaming body must be a string".into()))?
+            .as_bytes()
+            .to_vec();
+        let stream = futures_util::stream::once(async move { Ok::<_, std::io::Error>(bytes) });
+        let builder = self
+            .request_builder(method, url, headers)?
+            .body(wreq::Body::wrap_stream(stream));
+        self.execute(builder)
+    }
+
     /// Executes a request and streams the response body straight to `path`,
     /// never materializing it as a PHP string. Built for large downloads: the
     /// body is written to disk chunk by chunk, so memory stays flat regardless
@@ -507,10 +528,14 @@ fn build_multipart(
 /// Builds a `wreq::Client` from a PHP options array.
 ///
 /// Every `wreq::ClientBuilder` setting that can be expressed as a PHP scalar is
-/// exposed. Settings that require Rust objects — custom `Identity`/`CertStore`,
-/// `Http1Options`/`Http2Options`/`TlsOptions`, `KeyLog`, a custom DNS resolver,
-/// tower layers, `orig_headers` and `cookie_provider` — are intentionally not
-/// exposed; use the crate directly if you need those.
+/// exposed, including a custom TLS/HTTP2 fingerprint (`tls_cipher_list` and
+/// friends, `http2_initial_window_size` and friends) for callers that need to
+/// match a specific non-browser client (e.g. a mobile app's `dart:http2` /
+/// BoringSSL stack) rather than one of the `emulation` browser presets.
+/// Settings that still require arbitrary Rust objects — custom
+/// `Identity`/`CertStore`, `Http1Options`, `KeyLog`, a custom DNS resolver,
+/// tower layers, `orig_headers` and `cookie_provider` — remain intentionally
+/// unexposed; use the crate directly if you need those.
 ///
 /// Recognized keys (all optional):
 ///
@@ -533,8 +558,24 @@ fn build_multipart(
 ///   `resolve` (map host => "ip:port").
 /// TLS: `verify` (bool — cert + hostname), `tls_sni` (bool), `tls_info` (bool),
 ///   `min_tls_version`, `max_tls_version` (string `"1.0"`..`"1.3"`).
+/// Custom TLS fingerprint (combine freely; absent keys fall back to the
+///   BoringSSL/`wreq` default — set together with `emulation` and these win):
+///   `tls_cipher_list` (OpenSSL cipher-list string), `tls_curves_list`
+///   (colon-separated curve names, e.g. `"X25519:P-256:P-384"`),
+///   `tls_preserve_tls13_cipher_list` (bool), `tls_enable_ocsp_stapling`
+///   (bool), `tls_aes_hw_override` (bool), `tls_alpn_protocols` (array of
+///   `"h2"`/`"http1"`/`"h3"`).
+/// Custom HTTP/2 tuning: `http2_initial_window_size`,
+///   `http2_initial_connection_window_size` (int, stream/connection flow
+///   window), `http2_enable_push`, `http2_adaptive_window` (bool),
+///   `http2_headers_pseudo_order` (array of `"method"`/`"scheme"`/
+///   `"authority"`/`"path"`/`"protocol"`/`"status"`, in the exact order to
+///   send them).
 fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client> {
     let mut builder = wreq::Client::builder();
+    if std::env::var("SSLKEYLOGFILE").is_ok_and(|path| !path.trim().is_empty()) {
+        builder = builder.tls_keylog(wreq::tls::keylog::KeyLog::from_env());
+    }
 
     let Some(opts) = options else {
         return builder
@@ -797,6 +838,99 @@ fn build_wreq_client(options: Option<&ZendHashTable>) -> PhpResult<wreq::Client>
         builder = builder.tls_max_version(parse_tls_version(v).map_err(PhpException::default)?);
     }
 
+    // ---- custom TLS fingerprint (cipher/curve/ALPN tuning not covered by
+    // `emulation`, which only ships preset browser profiles) ----
+    const TLS_FINGERPRINT_KEYS: &[&str] = &[
+        "tls_cipher_list",
+        "tls_curves_list",
+        "tls_preserve_tls13_cipher_list",
+        "tls_enable_ocsp_stapling",
+        "tls_aes_hw_override",
+        "tls_alpn_protocols",
+    ];
+    if TLS_FINGERPRINT_KEYS
+        .iter()
+        .any(|k| opt_present(opts, k).is_some())
+    {
+        let mut tls = wreq::tls::TlsOptions::builder();
+        if let Some(v) = opt_str(opts, "tls_cipher_list")? {
+            tls = tls.cipher_list(v.to_string());
+        }
+        if let Some(v) = opt_str(opts, "tls_curves_list")? {
+            tls = tls.curves_list(v.to_string());
+        }
+        if let Some(v) = opt_bool(opts, "tls_preserve_tls13_cipher_list")? {
+            tls = tls.preserve_tls13_cipher_list(v);
+        }
+        if let Some(v) = opt_bool(opts, "tls_enable_ocsp_stapling")? {
+            tls = tls.enable_ocsp_stapling(v);
+        }
+        if let Some(v) = opt_bool(opts, "tls_aes_hw_override")? {
+            tls = tls.aes_hw_override(v);
+        }
+        if let Some(zv) = opt_present(opts, "tls_alpn_protocols") {
+            let table = zv
+                .array()
+                .ok_or_else(|| opt_type_error("tls_alpn_protocols", "an array of strings"))?;
+            let mut protos = Vec::new();
+            for (_, v) in table.iter() {
+                let s = v
+                    .str()
+                    .ok_or_else(|| opt_type_error("tls_alpn_protocols", "an array of strings"))?;
+                protos.push(parse_alpn_protocol(s).map_err(PhpException::default)?);
+            }
+            tls = tls.alpn_protocols(protos);
+        }
+        builder = builder.tls_options(tls.build());
+    }
+
+    // ---- custom HTTP/2 tuning (frame windows / pseudo-header order; not
+    // covered by `emulation`) ----
+    const HTTP2_TUNING_KEYS: &[&str] = &[
+        "http2_initial_window_size",
+        "http2_initial_connection_window_size",
+        "http2_enable_push",
+        "http2_adaptive_window",
+        "http2_headers_pseudo_order",
+    ];
+    if HTTP2_TUNING_KEYS
+        .iter()
+        .any(|k| opt_present(opts, k).is_some())
+    {
+        let mut h2 = wreq::http2::Http2Options::builder();
+        if let Some(n) = opt_long(opts, "http2_initial_window_size")? {
+            h2 = h2.initial_window_size(
+                checked_u32("http2_initial_window_size", n).map_err(PhpException::default)?,
+            );
+        }
+        if let Some(n) = opt_long(opts, "http2_initial_connection_window_size")? {
+            h2 = h2.initial_connection_window_size(
+                checked_u32("http2_initial_connection_window_size", n)
+                    .map_err(PhpException::default)?,
+            );
+        }
+        if let Some(v) = opt_bool(opts, "http2_enable_push")? {
+            h2 = h2.enable_push(v);
+        }
+        if let Some(v) = opt_bool(opts, "http2_adaptive_window")? {
+            h2 = h2.adaptive_window(v);
+        }
+        if let Some(zv) = opt_present(opts, "http2_headers_pseudo_order") {
+            let table = zv.array().ok_or_else(|| {
+                opt_type_error("http2_headers_pseudo_order", "an array of strings")
+            })?;
+            let mut pseudo = wreq::http2::PseudoOrder::builder();
+            for (_, v) in table.iter() {
+                let s = v.str().ok_or_else(|| {
+                    opt_type_error("http2_headers_pseudo_order", "an array of strings")
+                })?;
+                pseudo = pseudo.push(parse_pseudo_id(s).map_err(PhpException::default)?);
+            }
+            h2 = h2.headers_pseudo_order(pseudo.build());
+        }
+        builder = builder.http2_options(h2.build());
+    }
+
     builder
         .build()
         .map_err(|e| PhpException::default(format!("failed to build HTTP client: {e}")))
@@ -851,6 +985,17 @@ const KNOWN_OPTIONS: &[&str] = &[
     "tls_info",
     "min_tls_version",
     "max_tls_version",
+    "tls_cipher_list",
+    "tls_curves_list",
+    "tls_preserve_tls13_cipher_list",
+    "tls_enable_ocsp_stapling",
+    "tls_aes_hw_override",
+    "tls_alpn_protocols",
+    "http2_initial_window_size",
+    "http2_initial_connection_window_size",
+    "http2_enable_push",
+    "http2_adaptive_window",
+    "http2_headers_pseudo_order",
 ];
 
 /// Rejects unknown option keys and mutually exclusive combinations *before*
@@ -1088,6 +1233,38 @@ fn parse_tls_version(value: &str) -> Result<wreq::tls::TlsVersion, String> {
     }
 }
 
+/// Parses an ALPN protocol name (`"h2"`/`"http2"`, `"http/1.1"`/`"http1"`,
+/// `"h3"`/`"http3"`) into a `wreq` `AlpnProtocol`.
+fn parse_alpn_protocol(value: &str) -> Result<wreq::tls::AlpnProtocol, String> {
+    use wreq::tls::AlpnProtocol;
+    match value.trim().to_lowercase().as_str() {
+        "h2" | "http2" | "http/2" => Ok(AlpnProtocol::HTTP2),
+        "http1" | "http1.1" | "http/1.1" => Ok(AlpnProtocol::HTTP1),
+        "h3" | "http3" | "http/3" => Ok(AlpnProtocol::HTTP3),
+        other => Err(format!(
+            "invalid ALPN protocol '{other}' (expected 'h2', 'http1' or 'h3')"
+        )),
+    }
+}
+
+/// Parses an HTTP/2 pseudo-header name (`"method"`, `"scheme"`, `"authority"`,
+/// `"path"`, `"protocol"`, `"status"`) into a `wreq` `PseudoId`.
+fn parse_pseudo_id(value: &str) -> Result<wreq::http2::PseudoId, String> {
+    use wreq::http2::PseudoId;
+    match value.trim().to_lowercase().as_str() {
+        "method" => Ok(PseudoId::Method),
+        "scheme" => Ok(PseudoId::Scheme),
+        "authority" => Ok(PseudoId::Authority),
+        "path" => Ok(PseudoId::Path),
+        "protocol" => Ok(PseudoId::Protocol),
+        "status" => Ok(PseudoId::Status),
+        other => Err(format!(
+            "invalid HTTP/2 pseudo-header '{other}' (expected 'method', 'scheme', \
+             'authority', 'path', 'protocol' or 'status')"
+        )),
+    }
+}
+
 /// Converts a seconds value from PHP into a `Duration`, rejecting NaN, infinity,
 /// negatives and absurdly large values instead of letting `Duration::from_secs_f64`
 /// panic inside the extension. Returns a plain `String` for unit-test friendliness.
@@ -1130,6 +1307,66 @@ mod tests {
     fn parse_tls_version_rejects_unknown() {
         assert!(parse_tls_version("1.4").is_err());
         assert!(parse_tls_version("ssl3").is_err());
+    }
+
+    #[test]
+    fn parse_alpn_protocol_accepts_known_spellings() {
+        for input in ["h2", "http2", "http/2", "H2"] {
+            assert_eq!(
+                parse_alpn_protocol(input).unwrap(),
+                wreq::tls::AlpnProtocol::HTTP2
+            );
+        }
+        for input in ["http1", "http1.1", "http/1.1"] {
+            assert_eq!(
+                parse_alpn_protocol(input).unwrap(),
+                wreq::tls::AlpnProtocol::HTTP1
+            );
+        }
+        for input in ["h3", "http3", "http/3"] {
+            assert_eq!(
+                parse_alpn_protocol(input).unwrap(),
+                wreq::tls::AlpnProtocol::HTTP3
+            );
+        }
+    }
+
+    #[test]
+    fn parse_alpn_protocol_rejects_unknown() {
+        assert!(parse_alpn_protocol("h1.5").is_err());
+    }
+
+    #[test]
+    fn parse_pseudo_id_accepts_all_variants() {
+        assert_eq!(
+            parse_pseudo_id("method").unwrap(),
+            wreq::http2::PseudoId::Method
+        );
+        assert_eq!(
+            parse_pseudo_id("Scheme").unwrap(),
+            wreq::http2::PseudoId::Scheme
+        );
+        assert_eq!(
+            parse_pseudo_id("AUTHORITY").unwrap(),
+            wreq::http2::PseudoId::Authority
+        );
+        assert_eq!(
+            parse_pseudo_id("path").unwrap(),
+            wreq::http2::PseudoId::Path
+        );
+        assert_eq!(
+            parse_pseudo_id("protocol").unwrap(),
+            wreq::http2::PseudoId::Protocol
+        );
+        assert_eq!(
+            parse_pseudo_id("status").unwrap(),
+            wreq::http2::PseudoId::Status
+        );
+    }
+
+    #[test]
+    fn parse_pseudo_id_rejects_unknown() {
+        assert!(parse_pseudo_id("verb").is_err());
     }
 
     #[test]

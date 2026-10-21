@@ -29,6 +29,8 @@ final class PendingRequest
     /** Explicit raw body set via `withBody()`, bypassing array encoding. */
     private ?string $rawBody = null;
 
+    private bool $streamBody = false;
+
     /**
      * Destination path for streaming the response body to disk. When set, the
      * body is written straight to this file chunk by chunk and never loaded
@@ -219,12 +221,22 @@ final class PendingRequest
     {
         $clone = clone $this;
         $clone->rawBody = $content;
+        $clone->streamBody = false;
 
         if ($contentType !== null) {
             return $clone->withHeader('Content-Type', $contentType);
         }
 
         $clone->headers = self::defaultHeader($clone->headers, 'Content-Type', 'application/json');
+
+        return $clone;
+    }
+
+    /** Sends buffered bytes without an automatic Content-Length header. */
+    public function withStreamingBody(string $content, ?string $contentType = null): self
+    {
+        $clone = $this->withBody($content, $contentType);
+        $clone->streamBody = true;
 
         return $clone;
     }
@@ -400,6 +412,17 @@ final class PendingRequest
                 $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
                 $headers = self::defaultHeader($headers, 'Content-Type', 'application/json');
             }
+        }
+
+        if ($this->streamBody) {
+            if ($this->sink !== null) {
+                throw new \InvalidArgumentException('withStreamingBody() cannot be combined with sink()');
+            }
+            if (! method_exists($this->ext, 'requestStreaming')) {
+                throw new \RuntimeException('withStreamingBody() requires a rebuilt wreq_php extension with requestStreaming support');
+            }
+
+            return new Response($this->ext->requestStreaming($method, $finalUrl, $headers, $body));
         }
 
         // With a sink set, stream the body straight to disk in the extension;
