@@ -47,7 +47,7 @@ env:
 jobs:
   rust-checks:
     name: Rust checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -98,7 +98,7 @@ jobs:
 
   php-unit:
     name: PHP unit (php ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +131,7 @@ jobs:
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4', '8.5']
         platform:
-          - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-latest,    ext: so }
+          - { target_os: linux-gnu, arch: x86_64,  runner: ubuntu-26.04,    ext: so }
           - { target_os: linux-gnu, arch: aarch64, runner: ubuntu-24.04-arm, ext: so }
           - { target_os: macos,     arch: aarch64, runner: macos-14,         ext: so }
     steps:
@@ -174,7 +174,7 @@ jobs:
   musl:
     name: linux-musl · php ${{ matrix.php }}
     needs: [rust-checks, php-unit]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -203,7 +203,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, runner: ubuntu-latest }
+          - { arch: x86_64, runner: ubuntu-26.04 }
           - { arch: aarch64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v7
@@ -214,7 +214,7 @@ jobs:
 
   cargo-audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

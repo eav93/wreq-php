@@ -35,7 +35,7 @@ concurrency:
 jobs:
   version:
     name: Tag next version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Manual dispatch always runs; the automatic path requires CI to have
     # succeeded on a *push* to main *of this repository*. Without the last two
     # checks a fork PR whose branch is named "main" could satisfy head_branch
