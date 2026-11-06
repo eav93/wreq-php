@@ -56,6 +56,13 @@ jobs:
         with:
           php-version: '8.5'
 
+      - name: Select matching Clang and libclang on Ubuntu 26.04
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          test -x /usr/bin/clang-21
+          echo 'CLANG_PATH=/usr/bin/clang-21' >> "$GITHUB_ENV"
+          echo 'LIBCLANG_PATH=/usr/lib/llvm-21/lib' >> "$GITHUB_ENV"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -141,6 +148,13 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
+
+      - name: Select matching Clang and libclang on Ubuntu 26.04
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          test -x /usr/bin/clang-21
+          echo 'CLANG_PATH=/usr/bin/clang-21' >> "$GITHUB_ENV"
+          echo 'LIBCLANG_PATH=/usr/lib/llvm-21/lib' >> "$GITHUB_ENV"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
